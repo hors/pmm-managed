@@ -107,7 +107,7 @@ func (c *Channel) SendResponse(msg *agent.ServerMessage) {
 }
 
 // SendRequest sends request to pmm-managed, blocks until response is available, and returns it.
-// Response will nil if channel is closed.
+// Response will be nil if channel is closed.
 // It is no-op once channel is closed (see Wait).
 func (c *Channel) SendRequest(payload agent.ServerMessagePayload) agent.AgentMessagePayload {
 	id := atomic.AddUint32(&c.lastSentRequestID, 1)
@@ -162,7 +162,7 @@ func (c *Channel) runReceiver() {
 			c.requests <- msg
 
 		// responses
-		case *agent.AgentMessage_Ping, *agent.AgentMessage_State:
+		case *agent.AgentMessage_Ping, *agent.AgentMessage_SetState:
 			c.publish(msg.Id, msg.Payload)
 
 		default:

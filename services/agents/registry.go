@@ -284,8 +284,8 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 		}
 	}
 
-	res := agent.channel.SendRequest(&api.ServerMessage_State{
-		State: &api.SetStateRequest{
+	res := agent.channel.SendRequest(&api.ServerMessage_SetState{
+		SetState: &api.SetStateRequest{
 			AgentProcesses: processes,
 		},
 	})

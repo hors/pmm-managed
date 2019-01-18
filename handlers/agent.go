@@ -17,6 +17,8 @@
 package handlers
 
 import (
+	"context"
+
 	api "github.com/percona/pmm/api/agent"
 
 	"github.com/percona/pmm-managed/services/agents"
@@ -24,6 +26,10 @@ import (
 
 type AgentServer struct {
 	Registry *agents.Registry
+}
+
+func (s *AgentServer) Register(context.Context, *api.RegisterRequest) (*api.RegisterResponse, error) {
+	panic("not implemented yet")
 }
 
 func (s *AgentServer) Connect(stream api.Agent_ConnectServer) error {
