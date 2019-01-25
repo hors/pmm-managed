@@ -225,11 +225,9 @@ func TestServices(t *testing.T) {
 			Id:   "gen:00000000-0000-4000-8000-000000000001",
 			Name: "test-mysql",
 			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            models.PMMServerNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
+				NodeId:        models.PMMServerNodeID,
+				Distro:        "TODO",
+				DistroVersion: "TODO",
 			},
 			Address: "127.0.0.1",
 			Port:    3306,
@@ -246,11 +244,9 @@ func TestServices(t *testing.T) {
 			Id:   "gen:00000000-0000-4000-8000-000000000001",
 			Name: "test-mysql-new",
 			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            models.PMMServerNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
+				NodeId:        models.PMMServerNodeID,
+				Distro:        "TODO",
+				DistroVersion: "TODO",
 			},
 			Address: "127.0.0.1",
 			Port:    3306,
@@ -364,11 +360,9 @@ func TestAgents(t *testing.T) {
 		expectedNodeExporterAgent := &inventory.NodeExporter{
 			Id: "gen:00000000-0000-4000-8000-000000000001",
 			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            models.PMMServerNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
+				NodeId:        models.PMMServerNodeID,
+				Distro:        "TODO",
+				DistroVersion: "TODO",
 			},
 			Disabled: true,
 		}
@@ -467,11 +461,9 @@ func TestAgents(t *testing.T) {
 		expectedPMMAgent := &inventory.PMMAgent{
 			Id: "gen:00000000-0000-4000-8000-000000000001",
 			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            models.PMMServerNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
+				NodeId:        models.PMMServerNodeID,
+				Distro:        "TODO",
+				DistroVersion: "TODO",
 			},
 		}
 		assert.Equal(t, expectedPMMAgent, actualAgent)

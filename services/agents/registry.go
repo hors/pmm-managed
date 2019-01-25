@@ -51,6 +51,7 @@ type agentInfo struct {
 	kick    chan struct{}
 }
 
+// Registry keeps track of all connected pmm-agents.
 type Registry struct {
 	db *reform.DB
 
@@ -64,6 +65,7 @@ type Registry struct {
 	mClockDrift   prometheus.Summary
 }
 
+// NewRegistry creates a new registry with given database connection.
 func NewRegistry(db *reform.DB) *Registry {
 	return &Registry{
 		db:            db,
@@ -98,6 +100,7 @@ func NewRegistry(db *reform.DB) *Registry {
 	}
 }
 
+// Run takes over pmm-agent gRPC stream and runs it until completion.
 func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 	r.mConnects.Inc()
 	disconnectReason := "unknown"
@@ -110,6 +113,9 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 		disconnectReason = "auth"
 		return err
 	}
+	defer func() {
+		agent.l.Infof("Disconnecting client: %s.", disconnectReason)
+	}()
 
 	r.ping(agent)
 	r.SendSetStateRequest(stream.Context(), agent.id)
@@ -134,13 +140,23 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 
 			switch req := msg.Payload.(type) {
 			case *api.AgentMessage_QanData:
-				// TODO
+				// TODO handle it
 				agent.channel.SendResponse(&api.ServerMessage{
 					Id: msg.Id,
 					Payload: &api.ServerMessage_QanData{
 						QanData: new(api.QANDataResponse),
 					},
 				})
+
+			case *api.AgentMessage_StateChanged:
+				// TODO handle it
+				agent.channel.SendResponse(&api.ServerMessage{
+					Id: msg.Id,
+					Payload: &api.ServerMessage_StateChanged{
+						StateChanged: new(api.StateChangedResponse),
+					},
+				})
+
 			default:
 				agent.l.Warnf("Unexpected request: %s.", req)
 				disconnectReason = "bad_request"
@@ -181,7 +197,7 @@ func authenticate(md *api.AgentConnectMetadata, q *reform.Querier) error {
 		return status.Error(codes.Unauthenticated, "Empty Agent ID.")
 	}
 
-	row := &models.AgentRow{ID: md.ID}
+	row := &models.AgentRow{AgentID: md.ID}
 	if err := q.Reload(row); err != nil {
 		if err == reform.ErrNoRows {
 			return status.Errorf(codes.Unauthenticated, "No Agent with ID %q.", md.ID)
@@ -189,7 +205,7 @@ func authenticate(md *api.AgentConnectMetadata, q *reform.Querier) error {
 		return errors.Wrap(err, "failed to find agent")
 	}
 
-	if row.Type != models.PMMAgentType {
+	if row.AgentType != models.PMMAgentType {
 		return status.Errorf(codes.Unauthenticated, "No pmm-agent with ID %q.", md.ID)
 	}
 
@@ -219,15 +235,15 @@ func (r *Registry) Kick(ctx context.Context, id string) {
 func (r *Registry) ping(agent *agentInfo) {
 	start := time.Now()
 	res := agent.channel.SendRequest(&api.ServerMessage_Ping{
-		Ping: new(api.PingRequest),
+		Ping: new(api.Ping),
 	})
 	if res == nil {
 		return
 	}
 	latency := time.Since(start) / 2
-	t, err := ptypes.Timestamp(res.(*api.AgentMessage_Ping).Ping.CurrentTime)
+	t, err := ptypes.Timestamp(res.(*api.AgentMessage_Pong).Pong.CurrentTime)
 	if err != nil {
-		agent.l.Errorf("Failed to decode PingResponse.current_time: %s.", err)
+		agent.l.Errorf("Failed to decode Pong.current_time: %s.", err)
 		return
 	}
 	clockDrift := t.Sub(start.Add(latency))
@@ -250,13 +266,13 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 	// We assume that all agents running on that Node except pmm-agent with given ID are subagents.
 	// FIXME That is just plain wrong. We should filter by type, exclude external exporters, etc.
 
-	pmmAgent := &models.AgentRow{ID: id}
+	pmmAgent := &models.AgentRow{AgentID: id}
 	if err := r.db.Reload(pmmAgent); err != nil {
 		l.Errorf("pmm-agent with ID %q not found: %s.", id, err)
 		return
 	}
-	if pmmAgent.Type != models.PMMAgentType {
-		l.Panicf("Agent with ID %q has invalid type %q.", id, pmmAgent.Type)
+	if pmmAgent.AgentType != models.PMMAgentType {
+		l.Panicf("Agent with ID %q has invalid type %q.", id, pmmAgent.AgentType)
 		return
 	}
 	structs, err := r.db.FindAllFrom(models.AgentRowTable, "runs_on_node_id", pmmAgent.RunsOnNodeID)
@@ -268,19 +284,15 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 	processes := make(map[string]*api.SetStateRequest_AgentProcess, len(structs))
 	for _, str := range structs {
 		row := str.(*models.AgentRow)
-		if row.Disabled {
-			continue
-		}
-
-		switch row.Type {
+		switch row.AgentType {
 		case models.PMMAgentType:
 			continue
-		case models.NodeExporterAgentType:
-			processes[row.ID] = r.nodeExporterConfig(row)
-		case models.MySQLdExporterAgentType:
-			processes[row.ID] = r.mysqldExporterConfig(row)
+		case models.NodeExporterType:
+			processes[row.AgentID] = r.nodeExporterConfig(row)
+		case models.MySQLdExporterType:
+			processes[row.AgentID] = r.mysqldExporterConfig(row)
 		default:
-			l.Panicf("unhandled AgentRow type %s", row.Type)
+			l.Panicf("unhandled AgentRow type %s", row.AgentType)
 		}
 	}
 
@@ -289,29 +301,33 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 			AgentProcesses: processes,
 		},
 	})
-	agent.l.Infof("%s", res)
+	agent.l.Infof("SetState response: %+v.", res)
 }
 
 func (r *Registry) nodeExporterConfig(agent *models.AgentRow) *api.SetStateRequest_AgentProcess {
 	collectors := []string{
-		"diskstats",
-		"filefd",
+		// TODO !!! Enable them back.
+		// "diskstats",
+		// "filefd",
+		// "meminfo_numa",
+		// "netstat",
+		// "stat",
+		// "uname",
+		// "vmstat",
+
 		"filesystem",
 		"loadavg",
-		"meminfo_numa",
 		"meminfo",
 		"netdev",
-		"netstat",
-		"stat",
 		"textfile",
 		"time",
-		"uname",
-		"vmstat",
 	}
 	return &api.SetStateRequest_AgentProcess{
 		Type: api.Type_NODE_EXPORTER,
 		Args: []string{
 			fmt.Sprintf("-collectors.enabled=%s", strings.Join(collectors, ",")),
+			"-web.listen-address=:{{ .ListenPort }}",
+			"-web.telemetry-path=/metrics",
 		},
 	}
 }
@@ -342,8 +358,8 @@ func (r *Registry) mysqldExporterConfig(agent *models.AgentRow) *api.SetStateReq
 	// TODO TLSConfig: "true", https://jira.percona.com/browse/PMM-1727
 	// TODO Other parameters?
 	cfg := mysql.NewConfig()
-	cfg.User = pointer.GetString(agent.ServiceUsername)
-	cfg.Passwd = pointer.GetString(agent.ServicePassword)
+	cfg.User = pointer.GetString(agent.Username)
+	cfg.Passwd = pointer.GetString(agent.Password)
 	cfg.Net = "tcp"
 	// TODO cfg.Addr = net.JoinHostPort(*service.Address, strconv.Itoa(int(*service.Port)))
 	cfg.Timeout = sqlDialTimeout

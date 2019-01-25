@@ -37,7 +37,6 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/percona/pmm/api/agent"
 	inventoryAPI "github.com/percona/pmm/api/inventory"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -56,11 +55,7 @@ import (
 	"github.com/percona/pmm-managed/services/grafana"
 	"github.com/percona/pmm-managed/services/inventory"
 	"github.com/percona/pmm-managed/services/logs"
-	"github.com/percona/pmm-managed/services/mysql"
-	"github.com/percona/pmm-managed/services/postgresql"
 	"github.com/percona/pmm-managed/services/prometheus"
-	"github.com/percona/pmm-managed/services/rds"
-	"github.com/percona/pmm-managed/services/remote"
 	"github.com/percona/pmm-managed/services/supervisor"
 	"github.com/percona/pmm-managed/services/telemetry"
 	"github.com/percona/pmm-managed/utils/interceptors"
@@ -139,29 +134,6 @@ func addLogsHandler(mux *http.ServeMux, logs *logs.Logs) {
 	})
 }
 
-func makePortsRegistry(db *reform.DB) (*ports.Registry, error) {
-	// collect already reserved ports
-	rows, err := db.Query("SELECT listen_port FROM agents")
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	defer rows.Close()
-
-	var reserved []uint16
-	for rows.Next() {
-		var port uint16
-		if err = rows.Scan(&port); err != nil {
-			return nil, errors.WithStack(err)
-		}
-		reserved = append(reserved, port)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, errors.WithStack(err)
-	}
-	registry := ports.NewRegistry(10000, 10999, reserved)
-	return registry, err
-}
-
 type serviceDependencies struct {
 	prometheus    *prometheus.Service
 	supervisor    *supervisor.Supervisor
@@ -169,105 +141,9 @@ type serviceDependencies struct {
 	portsRegistry *ports.Registry
 }
 
-func makeRDSService(ctx context.Context, deps *serviceDependencies) (*rds.Service, error) {
-	rdsConfig := rds.ServiceConfig{
-		MySQLdExporterPath:    *agentMySQLdExporterF,
-		RDSExporterPath:       *agentRDSExporterF,
-		RDSExporterConfigPath: *agentRDSExporterConfigF,
-
-		Prometheus:    deps.prometheus,
-		Supervisor:    deps.supervisor,
-		DB:            deps.db,
-		PortsRegistry: deps.portsRegistry,
-	}
-	rdsService, err := rds.NewService(&rdsConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return rdsService.ApplyPrometheusConfiguration(ctx, tx.Querier)
-	})
-	if err != nil {
-		return nil, err
-	}
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return rdsService.Restore(ctx, tx)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return rdsService, nil
-}
-
-func makeMySQLService(ctx context.Context, deps *serviceDependencies) (*mysql.Service, error) {
-	serviceConfig := mysql.ServiceConfig{
-		MySQLdExporterPath: *agentMySQLdExporterF,
-
-		Prometheus:    deps.prometheus,
-		Supervisor:    deps.supervisor,
-		DB:            deps.db,
-		PortsRegistry: deps.portsRegistry,
-	}
-	mysqlService, err := mysql.NewService(&serviceConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return mysqlService.ApplyPrometheusConfiguration(ctx, tx.Querier)
-	})
-	if err != nil {
-		return nil, err
-	}
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return mysqlService.Restore(ctx, tx)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return mysqlService, nil
-}
-
-func makePostgreSQLService(ctx context.Context, deps *serviceDependencies) (*postgresql.Service, error) {
-	serviceConfig := postgresql.ServiceConfig{
-		PostgresExporterPath: *agentPostgresExporterF,
-
-		Prometheus:    deps.prometheus,
-		Supervisor:    deps.supervisor,
-		DB:            deps.db,
-		PortsRegistry: deps.portsRegistry,
-	}
-	postgresqlService, err := postgresql.NewService(&serviceConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return postgresqlService.ApplyPrometheusConfiguration(ctx, tx.Querier)
-	})
-	if err != nil {
-		return nil, err
-	}
-	err = deps.db.InTransaction(func(tx *reform.TX) error {
-		return postgresqlService.Restore(ctx, tx)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return postgresqlService, nil
-}
-
 type grpcServerDependencies struct {
 	*serviceDependencies
 	consulClient *consul.Client
-	rds          *rds.Service
-	mysql        *mysql.Service
-	postgres     *postgresql.Service
-	remote       *remote.Service
 	logs         *logs.Logs
 }
 
@@ -286,18 +162,6 @@ func runGRPCServer(ctx context.Context, deps *grpcServerDependencies) {
 	api.RegisterDemoServer(gRPCServer, &handlers.DemoServer{})
 	api.RegisterScrapeConfigsServer(gRPCServer, &handlers.ScrapeConfigsServer{
 		Prometheus: deps.prometheus,
-	})
-	api.RegisterRDSServer(gRPCServer, &handlers.RDSServer{
-		RDS: deps.rds,
-	})
-	api.RegisterMySQLServer(gRPCServer, &handlers.MySQLServer{
-		MySQL: deps.mysql,
-	})
-	api.RegisterPostgreSQLServer(gRPCServer, &handlers.PostgreSQLServer{
-		PostgreSQL: deps.postgres,
-	})
-	api.RegisterRemoteServer(gRPCServer, &handlers.RemoteServer{
-		Remote: deps.remote,
 	})
 	api.RegisterLogsServer(gRPCServer, &handlers.LogsServer{
 		Logs: deps.logs,
@@ -553,10 +417,7 @@ func main() {
 	defer postgresDB.Close()
 	pdb := reform.NewDB(postgresDB, reformPostgreSQL.Dialect, nil)
 
-	portsRegistry, err := makePortsRegistry(db)
-	if err != nil {
-		l.Panic(err)
-	}
+	portsRegistry := ports.NewRegistry(10000, 10999, nil)
 
 	deps := &serviceDependencies{
 		prometheus:    prometheus,
@@ -564,29 +425,8 @@ func main() {
 		db:            db,
 		portsRegistry: portsRegistry,
 	}
-	rds, err := makeRDSService(ctx, deps)
-	if err != nil {
-		l.Panicf("RDS service problem: %+v", err)
-	}
 
-	mysqlService, err := makeMySQLService(ctx, deps)
-	if err != nil {
-		l.Panicf("MySQL service problem: %+v", err)
-	}
-
-	postgres, err := makePostgreSQLService(ctx, deps)
-	if err != nil {
-		l.Panicf("PostgreSQL service problem: %+v", err)
-	}
-
-	remoteService, err := remote.NewService(&remote.ServiceConfig{
-		DB: deps.db,
-	})
-	if err != nil {
-		l.Panicf("Remote service problem: %+v", err)
-	}
-
-	logs := logs.New(Version, consulClient, db, rds, nil)
+	logs := logs.New(Version, consulClient, nil)
 
 	var wg sync.WaitGroup
 
@@ -595,10 +435,6 @@ func main() {
 		defer wg.Done()
 		runGRPCServer(ctx, &grpcServerDependencies{
 			serviceDependencies: deps,
-			rds:                 rds,
-			postgres:            postgres,
-			mysql:               mysqlService,
-			remote:              remoteService,
 			consulClient:        consulClient,
 			logs:                logs,
 		})

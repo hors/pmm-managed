@@ -20,7 +20,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -35,12 +34,9 @@ import (
 
 	servicelib "github.com/percona/kardianos-service"
 	"github.com/pkg/errors"
-	"gopkg.in/reform.v1"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/pmm-managed/models"
 	"github.com/percona/pmm-managed/services/consul"
-	"github.com/percona/pmm-managed/services/rds"
 	"github.com/percona/pmm-managed/utils/logger"
 )
 
@@ -103,9 +99,6 @@ var defaultLogs = []Log{
 // Logs is responsible for interactions with logs.
 type Logs struct {
 	pmmVersion string
-	consul     *consul.Client
-	db         *reform.DB
-	rds        *rds.Service
 	logs       []Log
 
 	journalctlPath string
@@ -149,16 +142,13 @@ func getCredential() (string, error) {
 
 // New creates a new Logs service.
 // n is a number of last lines of log to read.
-func New(pmmVersion string, consul *consul.Client, db *reform.DB, rds *rds.Service, logs []Log) *Logs {
+func New(pmmVersion string, consul *consul.Client, logs []Log) *Logs {
 	if logs == nil {
 		logs = defaultLogs
 	}
 
 	l := &Logs{
 		pmmVersion: pmmVersion,
-		consul:     consul,
-		db:         db,
-		rds:        rds,
 		logs:       logs,
 	}
 
@@ -177,40 +167,6 @@ func (l *Logs) Files(ctx context.Context) []File {
 	files := make([]File, 0, len(l.logs))
 
 	for _, log := range l.logs {
-		var f File
-		f.Name, f.Data, f.Err = l.readLog(ctx, &log)
-		files = append(files, f)
-	}
-
-	var agents []reform.Struct
-	err := l.db.InTransaction(func(tx *reform.TX) error {
-		var node models.Node
-		err := tx.FindOneTo(&node, "type", models.PMMServerNodeType)
-		if err != nil {
-			return errors.Wrap(err, "failed to get PMM Server node")
-		}
-
-		agents, err = tx.FindAllFrom(models.AgentTable, "runs_on_node_id", node.ID)
-		return errors.Wrap(err, "failed to get agents running in PMM Server")
-	})
-	if err != nil {
-		logger.Get(ctx).WithField("component", "logs").Errorf("Failed to get RDS agents: %s.", err)
-	}
-
-	// collect names in set, not in slice,
-	// in case a single agent does several jobs and is returned several times
-	names := make(map[string]struct{}, len(agents))
-	for _, a := range agents {
-		agent := a.(*models.Agent)
-		name := models.NameForSupervisor(agent.Type, *agent.ListenPort)
-		names[name] = struct{}{}
-	}
-
-	for name := range names {
-		log := Log{
-			FilePath: logsRootDir + name + ".log",
-			UnitName: name,
-		}
 		var f File
 		f.Name, f.Data, f.Err = l.readLog(ctx, &log)
 		files = append(files, f)
@@ -284,12 +240,6 @@ func (l *Logs) readWithExtractor(ctx context.Context, log *Log) (name string, da
 
 	case "pmmVersion":
 		data = []byte(l.pmmVersion)
-
-	case "consul":
-		data, err = l.getConsulNodes()
-
-	case "rds":
-		data, err = l.getRDSInstances(ctx)
 
 	case "http":
 		command := log.Extractor[1]
@@ -367,26 +317,4 @@ func (l *Logs) readURL(url string) ([]byte, error) {
 		return nil, err
 	}
 	return b, nil
-}
-
-// getConsulNodes gets list of nodes
-func (l *Logs) getConsulNodes() ([]byte, error) {
-	nodes, err := l.consul.GetNodes()
-	if err != nil {
-		return nil, err
-	}
-	return json.MarshalIndent(nodes, "", "  ")
-}
-
-// getRDSInstances gets list of monitored instances
-func (l *Logs) getRDSInstances(ctx context.Context) ([]byte, error) {
-	if l.rds == nil {
-		return nil, errors.New("RDS service not initialized")
-	}
-
-	instances, err := l.rds.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return json.MarshalIndent(instances, "", " ")
 }

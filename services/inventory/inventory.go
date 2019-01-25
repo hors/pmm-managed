@@ -21,12 +21,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO Decide about transactions.
-
 // FIXME remove it when we remove old services (mysql, postgresql, remote)
-var MakeID = makeID
-
-// makeID generates new random ID for Node, Service, or Agent.
-func makeID() string {
+func MakeID() string {
 	return "gen:" + uuid.New().String()
 }

@@ -22,7 +22,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/go-sql-driver/mysql" // register SQL driver
+	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
 	"gopkg.in/reform.v1"
@@ -99,6 +99,7 @@ var databaseSchema = [][]string{
 			-- updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
 			-- state
+			version VARCHAR(255),
 			listen_port SMALLINT UNSIGNED,
 
 			-- MySQLdExporter

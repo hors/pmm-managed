@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/AlekSi/pointer"
+	"github.com/google/uuid"
 	"github.com/percona/pmm/api/inventory"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -45,25 +46,18 @@ func NewServicesService(q *reform.Querier) *ServicesService {
 
 // makeService converts database row to Inventory API Service.
 func makeService(row *models.ServiceRow) inventory.Service {
-	switch row.Type {
+	switch row.ServiceType {
 	case models.MySQLServiceType:
 		return &inventory.MySQLService{
-			Id:   row.ID,
-			Name: row.Name,
-			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            row.NodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
-			},
-			Address:    pointer.GetString(row.Address),
-			Port:       uint32(pointer.GetUint16(row.Port)),
-			UnixSocket: pointer.GetString(row.UnixSocket),
+			ServiceId:   row.ServiceID,
+			ServiceName: row.ServiceName,
+			Address:     pointer.GetString(row.Address),
+			Port:        uint32(pointer.GetUint16(row.Port)),
+			UnixSocket:  pointer.GetString(row.UnixSocket),
 		}
 
 	default:
-		panic(fmt.Errorf("unhandled ServiceRow type %s", row.Type))
+		panic(fmt.Errorf("unhandled ServiceRow type %s", row.ServiceType))
 	}
 }
 
@@ -72,7 +66,7 @@ func (ss *ServicesService) get(ctx context.Context, id string) (*models.ServiceR
 		return nil, status.Error(codes.InvalidArgument, "Empty Service ID.")
 	}
 
-	row := &models.ServiceRow{ID: id}
+	row := &models.ServiceRow{ServiceID: id}
 	switch err := ss.q.Reload(row); err {
 	case nil:
 		return row, nil
@@ -80,6 +74,22 @@ func (ss *ServicesService) get(ctx context.Context, id string) (*models.ServiceR
 		return nil, status.Errorf(codes.NotFound, "Service with ID %q not found.", id)
 	default:
 		return nil, errors.WithStack(err)
+	}
+}
+
+func (ss *ServicesService) checkUniqueID(ctx context.Context, id string) error {
+	if id == "" {
+		panic("empty Service ID")
+	}
+
+	row := &models.ServiceRow{ServiceID: id}
+	switch err := ss.q.Reload(row); err {
+	case nil:
+		return status.Errorf(codes.AlreadyExists, "Service with ID %q already exists.", id)
+	case reform.ErrNoRows:
+		return nil
+	default:
+		return errors.WithStack(err)
 	}
 }
 
@@ -124,6 +134,10 @@ func (ss *ServicesService) AddMySQL(ctx context.Context, name string, nodeID str
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// Both address and socket can't be empty, etc.
 
+	id := "/service_id/" + uuid.New().String()
+	if err := ss.checkUniqueID(ctx, id); err != nil {
+		return nil, err
+	}
 	if err := ss.checkUniqueName(ctx, name); err != nil {
 		return nil, err
 	}
@@ -134,13 +148,13 @@ func (ss *ServicesService) AddMySQL(ctx context.Context, name string, nodeID str
 	}
 
 	row := &models.ServiceRow{
-		ID:         makeID(),
-		Type:       models.MySQLServiceType,
-		Name:       name,
-		NodeID:     nodeID,
-		Address:    address,
-		Port:       port,
-		UnixSocket: unixSocket,
+		ServiceID:   id,
+		ServiceType: models.MySQLServiceType,
+		ServiceName: name,
+		NodeID:      nodeID,
+		Address:     address,
+		Port:        port,
+		UnixSocket:  unixSocket,
 	}
 	if err := ss.q.Insert(row); err != nil {
 		return nil, errors.WithStack(err)
@@ -162,7 +176,7 @@ func (ss *ServicesService) Change(ctx context.Context, id string, name string) (
 		return nil, err
 	}
 
-	row.Name = name
+	row.ServiceName = name
 	if err = ss.q.Update(row); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -176,7 +190,7 @@ func (ss *ServicesService) Remove(ctx context.Context, id string) error {
 
 	// TODO check absence of Agents
 
-	err := ss.q.Delete(&models.ServiceRow{ID: id})
+	err := ss.q.Delete(&models.ServiceRow{ServiceID: id})
 	if err == reform.ErrNoRows {
 		return status.Errorf(codes.NotFound, "Service with ID %q not found.", id)
 	}

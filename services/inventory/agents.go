@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/AlekSi/pointer"
+	"github.com/google/uuid"
 	"github.com/percona/pmm/api/inventory"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -47,71 +48,67 @@ func NewAgentsService(q *reform.Querier, r *agents.Registry) *AgentsService {
 
 // makeAgent converts database row to Inventory API Agent.
 func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (inventory.Agent, error) {
-	switch row.Type {
+	switch row.AgentType {
 	case models.PMMAgentType:
 		return &inventory.PMMAgent{
-			Id: row.ID,
-			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            row.RunsOnNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
-			},
-			Running: !row.Disabled,
+			AgentId:   row.AgentID,
+			NodeId:    row.RunsOnNodeID,
+			Connected: true,
 		}, nil
 
-	case models.NodeExporterAgentType:
+	case models.NodeExporterType:
 		return &inventory.NodeExporter{
-			Id: row.ID,
-			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            row.RunsOnNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
-			},
-			Disabled: row.Disabled,
+			AgentId: row.AgentID,
+			NodeId:  row.RunsOnNodeID,
 		}, nil
 
-	case models.MySQLdExporterAgentType:
+	case models.MySQLdExporterType:
 		var agentService models.AgentService
-		if err := as.q.FindOneTo(&agentService, "agent_id", row.ID); err != nil {
+		if err := as.q.FindOneTo(&agentService, "agent_id", row.AgentID); err != nil {
 			return nil, errors.WithStack(err)
 		}
 
 		return &inventory.MySQLdExporter{
-			Id: row.ID,
-			HostNodeInfo: &inventory.HostNodeInfo{
-				NodeId:            row.RunsOnNodeID,
-				ContainerId:       "TODO",
-				ContainerName:     "TODO",
-				KubernetesPodUid:  "TODO",
-				KubernetesPodName: "TODO",
-			},
-			Disabled:  row.Disabled,
-			ServiceId: agentService.ServiceID,
-			Username:  pointer.GetString(row.ServiceUsername),
+			AgentId:      row.AgentID,
+			RunsOnNodeId: row.RunsOnNodeID,
+			ServiceId:    agentService.ServiceID,
+			Username:     pointer.GetString(row.Username),
 		}, nil
 
 	default:
-		panic(fmt.Errorf("unhandled AgentRow type %s", row.Type))
+		panic(fmt.Errorf("unhandled AgentRow type %s", row.AgentType))
 	}
 }
 
-func (as *AgentsService) get(ctx context.Context, id string) (*models.AgentRow, error) {
+func (as *AgentsService) get(ctx context.Context, id string) (*models.AgentRow, *models.AgentNode, error) {
 	if id == "" {
-		return nil, status.Error(codes.InvalidArgument, "Empty Agent ID.")
+		return nil, nil, status.Error(codes.InvalidArgument, "Empty Agent ID.")
 	}
 
-	row := &models.AgentRow{ID: id}
+	row := &models.AgentRow{AgentID: id}
 	switch err := as.q.Reload(row); err {
 	case nil:
-		return row, nil
+		return row, nil, nil
 	case reform.ErrNoRows:
-		return nil, status.Errorf(codes.NotFound, "Agent with ID %q not found.", id)
+		return nil, nil, status.Errorf(codes.NotFound, "Agent with ID %q not found.", id)
 	default:
-		return nil, errors.WithStack(err)
+		return nil, nil, errors.WithStack(err)
+	}
+}
+
+func (as *AgentsService) checkUniqueID(ctx context.Context, id string) error {
+	if id == "" {
+		panic("empty Agent ID")
+	}
+
+	row := &models.AgentRow{AgentID: id}
+	switch err := as.q.Reload(row); err {
+	case nil:
+		return status.Errorf(codes.AlreadyExists, "Agent with ID %q already exists.", id)
+	case reform.ErrNoRows:
+		return nil
+	default:
+		return errors.WithStack(err)
 	}
 }
 
@@ -136,7 +133,7 @@ func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]inve
 
 // Get selects a single Agent by ID.
 func (as *AgentsService) Get(ctx context.Context, id string) (inventory.Agent, error) {
-	row, err := as.get(ctx, id)
+	row, _, err := as.get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -148,23 +145,27 @@ func (as *AgentsService) AddPMMAgent(ctx context.Context, nodeID string) (invent
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
+	id := "/agent_id/" + uuid.New().String()
+	if err := as.checkUniqueID(ctx, id); err != nil {
+		return nil, err
+	}
+
 	ns := NewNodesService(as.q)
 	if _, err := ns.get(ctx, nodeID); err != nil {
 		return nil, err
 	}
 
 	row := &models.AgentRow{
-		ID:           makeID(),
-		Type:         models.PMMAgentType,
+		AgentID:      id,
+		AgentType:    models.PMMAgentType,
 		RunsOnNodeID: nodeID,
-		Disabled:     true, // not connected when we create it
 	}
 	if err := as.q.Insert(row); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	err := as.q.Insert(&models.AgentNode{
-		AgentID: row.ID,
+		AgentID: row.AgentID,
 		NodeID:  nodeID,
 	})
 	if err != nil {
@@ -180,23 +181,27 @@ func (as *AgentsService) AddNodeExporter(ctx context.Context, nodeID string, dis
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
+	id := "/agent_id/" + uuid.New().String()
+	if err := as.checkUniqueID(ctx, id); err != nil {
+		return nil, err
+	}
+
 	ns := NewNodesService(as.q)
 	if _, err := ns.get(ctx, nodeID); err != nil {
 		return nil, err
 	}
 
 	row := &models.AgentRow{
-		ID:           makeID(),
-		Type:         models.NodeExporterAgentType,
+		AgentID:      id,
+		AgentType:    models.NodeExporterType,
 		RunsOnNodeID: nodeID,
-		Disabled:     disabled,
 	}
 	if err := as.q.Insert(row); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	err := as.q.Insert(&models.AgentNode{
-		AgentID: row.ID,
+		AgentID: row.AgentID,
 		NodeID:  nodeID,
 	})
 	if err != nil {
@@ -211,6 +216,11 @@ func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, d
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
+	id := "/agent_id/" + uuid.New().String()
+	if err := as.checkUniqueID(ctx, id); err != nil {
+		return nil, err
+	}
+
 	ns := NewNodesService(as.q)
 	if _, err := ns.get(ctx, nodeID); err != nil {
 		return nil, err
@@ -222,26 +232,25 @@ func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, d
 	}
 
 	row := &models.AgentRow{
-		ID:              makeID(),
-		Type:            models.MySQLdExporterAgentType,
-		RunsOnNodeID:    nodeID,
-		Disabled:        disabled,
-		ServiceUsername: username,
-		ServicePassword: password,
+		AgentID:      id,
+		AgentType:    models.MySQLdExporterType,
+		RunsOnNodeID: nodeID,
+		Username:     username,
+		Password:     password,
 	}
 	if err := as.q.Insert(row); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	err := as.q.Insert(&models.AgentNode{
-		AgentID: row.ID,
+		AgentID: row.AgentID,
 		NodeID:  nodeID,
 	})
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 	err = as.q.Insert(&models.AgentService{
-		AgentID:   row.ID,
+		AgentID:   row.AgentID,
 		ServiceID: serviceID,
 	})
 	if err != nil {
@@ -251,9 +260,10 @@ func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, d
 	return as.makeAgent(ctx, row)
 }
 
+/*
 // SetDisabled enables or disables Agent by ID.
 func (as *AgentsService) SetDisabled(ctx context.Context, id string, disabled bool) error {
-	row, err := as.get(ctx, id)
+	row, _, err := as.get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -262,13 +272,14 @@ func (as *AgentsService) SetDisabled(ctx context.Context, id string, disabled bo
 	err = as.q.Update(row)
 	return errors.WithStack(err)
 }
+*/
 
 // Remove deletes Agent by ID.
 func (as *AgentsService) Remove(ctx context.Context, id string) error {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// ID is not 0.
 
-	row, err := as.get(ctx, id)
+	row, _, err := as.get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -284,7 +295,7 @@ func (as *AgentsService) Remove(ctx context.Context, id string) error {
 		return errors.WithStack(err)
 	}
 
-	if row.Type == models.PMMAgentType {
+	if row.AgentType == models.PMMAgentType {
 		as.r.Kick(ctx, id)
 	}
 	return nil

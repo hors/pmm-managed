@@ -187,10 +187,10 @@ func TestServerRequest(t *testing.T) {
 	connect := func(ch *Channel) error { //nolint:unparam
 		for i := uint32(1); i <= count; i++ {
 			msg := ch.SendRequest(&agent.ServerMessage_Ping{
-				Ping: new(agent.PingRequest),
+				Ping: new(agent.Ping),
 			})
-			ping := msg.(*agent.AgentMessage_Ping)
-			ts, err := ptypes.Timestamp(ping.Ping.CurrentTime)
+			pong := msg.(*agent.AgentMessage_Pong)
+			ts, err := ptypes.Timestamp(pong.Pong.CurrentTime)
 			assert.NoError(t, err)
 			assert.InDelta(t, time.Now().Unix(), ts.Unix(), 1)
 		}
@@ -210,8 +210,8 @@ func TestServerRequest(t *testing.T) {
 
 		err = stream.Send(&agent.AgentMessage{
 			Id: i,
-			Payload: &agent.AgentMessage_Ping{
-				Ping: &agent.PingResponse{
+			Payload: &agent.AgentMessage_Pong{
+				Pong: &agent.Pong{
 					CurrentTime: ptypes.TimestampNow(),
 				},
 			},
@@ -277,7 +277,7 @@ func TestServerExitsWithUnknownError(t *testing.T) {
 func TestAgentClosesStream(t *testing.T) {
 	connect := func(ch *Channel) error { //nolint:unparam
 		msg := ch.SendRequest(&agent.ServerMessage_Ping{
-			Ping: new(agent.PingRequest),
+			Ping: new(agent.Ping),
 		})
 		assert.Nil(t, msg)
 
@@ -299,7 +299,7 @@ func TestAgentClosesStream(t *testing.T) {
 func TestAgentClosesConnection(t *testing.T) {
 	connect := func(ch *Channel) error { //nolint:unparam
 		msg := ch.SendRequest(&agent.ServerMessage_Ping{
-			Ping: new(agent.PingRequest),
+			Ping: new(agent.Ping),
 		})
 		assert.Nil(t, msg)
 
@@ -322,13 +322,13 @@ func TestUnexpectedResponseFromAgent(t *testing.T) {
 	connect := func(ch *Channel) error { //nolint:unparam
 		// after receiving unexpected response, channel is closed
 		msg := ch.SendRequest(&agent.ServerMessage_Ping{
-			Ping: new(agent.PingRequest),
+			Ping: new(agent.Ping),
 		})
 		assert.Nil(t, msg)
 
 		// future requests are ignored
 		msg = ch.SendRequest(&agent.ServerMessage_Ping{
-			Ping: new(agent.PingRequest),
+			Ping: new(agent.Ping),
 		})
 		assert.Nil(t, msg)
 
@@ -342,7 +342,7 @@ func TestUnexpectedResponseFromAgent(t *testing.T) {
 	err := stream.Send(&agent.AgentMessage{
 		Id: 111,
 		Payload: &agent.AgentMessage_Ping{
-			Ping: new(agent.PingResponse),
+			Ping: new(agent.Ping),
 		},
 	})
 	assert.NoError(t, err)
@@ -351,7 +351,7 @@ func TestUnexpectedResponseFromAgent(t *testing.T) {
 	err = stream.Send(&agent.AgentMessage{
 		Id: 222,
 		Payload: &agent.AgentMessage_Ping{
-			Ping: new(agent.PingResponse),
+			Ping: new(agent.Ping),
 		},
 	})
 	assert.NoError(t, err)

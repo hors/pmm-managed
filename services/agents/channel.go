@@ -158,15 +158,15 @@ func (c *Channel) runReceiver() {
 
 		switch msg.Payload.(type) {
 		// requests
-		case *agent.AgentMessage_QanData:
+		case *agent.AgentMessage_Ping, *agent.AgentMessage_StateChanged, *agent.AgentMessage_QanData:
 			c.requests <- msg
 
 		// responses
-		case *agent.AgentMessage_Ping, *agent.AgentMessage_SetState:
+		case *agent.AgentMessage_Pong, *agent.AgentMessage_SetState:
 			c.publish(msg.Id, msg.Payload)
 
 		default:
-			c.close(errors.Wrapf(err, "failed to handle received message %s", msg))
+			c.close(errors.Errorf("failed to handle received message %s", msg))
 			return
 		}
 	}
