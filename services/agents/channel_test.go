@@ -341,8 +341,8 @@ func TestUnexpectedResponseFromAgent(t *testing.T) {
 	// this message triggers "no subscriber for ID" error
 	err := stream.Send(&agent.AgentMessage{
 		Id: 111,
-		Payload: &agent.AgentMessage_Ping{
-			Ping: new(agent.Ping),
+		Payload: &agent.AgentMessage_Pong{
+			Pong: new(agent.Pong),
 		},
 	})
 	assert.NoError(t, err)
@@ -350,8 +350,8 @@ func TestUnexpectedResponseFromAgent(t *testing.T) {
 	// this message should not trigger new error
 	err = stream.Send(&agent.AgentMessage{
 		Id: 222,
-		Payload: &agent.AgentMessage_Ping{
-			Ping: new(agent.Ping),
+		Payload: &agent.AgentMessage_Pong{
+			Pong: new(agent.Pong),
 		},
 	})
 	assert.NoError(t, err)
