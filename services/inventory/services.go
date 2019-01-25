@@ -51,6 +51,7 @@ func makeService(row *models.ServiceRow) inventory.Service {
 		return &inventory.MySQLService{
 			ServiceId:   row.ServiceID,
 			ServiceName: row.ServiceName,
+			NodeId:      row.NodeID,
 			Address:     pointer.GetString(row.Address),
 			Port:        uint32(pointer.GetUint16(row.Port)),
 			UnixSocket:  pointer.GetString(row.UnixSocket),
@@ -94,7 +95,7 @@ func (ss *ServicesService) checkUniqueID(ctx context.Context, id string) error {
 }
 
 func (ss *ServicesService) checkUniqueName(ctx context.Context, name string) error {
-	_, err := ss.q.FindOneFrom(models.ServiceRowTable, "name", name)
+	_, err := ss.q.FindOneFrom(models.ServiceRowTable, "service_name", name)
 	switch err {
 	case nil:
 		return status.Errorf(codes.AlreadyExists, "Service with name %q already exists.", name)
@@ -107,7 +108,7 @@ func (ss *ServicesService) checkUniqueName(ctx context.Context, name string) err
 
 // List selects all Services in a stable order.
 func (ss *ServicesService) List(ctx context.Context) ([]inventory.Service, error) {
-	structs, err := ss.q.SelectAllFrom(models.ServiceRowTable, "ORDER BY id")
+	structs, err := ss.q.SelectAllFrom(models.ServiceRowTable, "ORDER BY service_id")
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

@@ -36,7 +36,6 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 
-	"github.com/percona/pmm-managed/services/consul"
 	"github.com/percona/pmm-managed/utils/logger"
 )
 
@@ -62,7 +61,6 @@ const (
 var logsRootDir = "/var/log/"
 
 var defaultLogs = []Log{
-	{logsDataVolumeContainerDir + "consul.log", "consul", nil},
 	{logsDataVolumeContainerDir + "createdb.log", "", nil},
 	{logsDataVolumeContainerDir + "cron.log", "crond", nil},
 	{logsDataVolumeContainerDir + "dashboard-upgrade.log", "", nil},
@@ -91,8 +89,6 @@ var defaultLogs = []Log{
 	{"/etc/supervisord.d/pmm.ini", "", []string{"cat", ""}},
 	{"/etc/nginx/conf.d/pmm.conf", "", []string{"cat", ""}},
 	{"prometheus_targets.html", "", []string{"http", "http://localhost/prometheus/targets"}},
-	{"consul_nodes.json", "", []string{"consul"}},
-	{"managed_RDS-Aurora.json", "", []string{"rds"}},
 	{"pmm-version.txt", "", []string{"pmmVersion", ""}},
 }
 
@@ -142,7 +138,7 @@ func getCredential() (string, error) {
 
 // New creates a new Logs service.
 // n is a number of last lines of log to read.
-func New(pmmVersion string, consul *consul.Client, logs []Log) *Logs {
+func New(pmmVersion string, logs []Log) *Logs {
 	if logs == nil {
 		logs = defaultLogs
 	}
@@ -257,7 +253,7 @@ func (l *Logs) readWithExtractor(ctx context.Context, log *Log) (name string, da
 		data, err = ioutil.ReadFile(log.FilePath)
 
 	default:
-		panic("unhandled extractor")
+		panic("unhandled extractor: " + log.Extractor[0])
 	}
 
 	return

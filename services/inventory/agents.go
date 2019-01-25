@@ -51,9 +51,8 @@ func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (i
 	switch row.AgentType {
 	case models.PMMAgentType:
 		return &inventory.PMMAgent{
-			AgentId:   row.AgentID,
-			NodeId:    row.RunsOnNodeID,
-			Connected: true,
+			AgentId: row.AgentID,
+			NodeId:  row.RunsOnNodeID,
 		}, nil
 
 	case models.NodeExporterType:
@@ -329,7 +328,7 @@ func (as *AgentsService) agentsByFilters(filters AgentFilters) ([]*models.AgentR
 		if len(args) == 0 {
 			return []*models.AgentRow{}, nil
 		}
-		tail = fmt.Sprintf("WHERE id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
+		tail = fmt.Sprintf("WHERE agent_id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
 	case filters.ServiceID != "":
 		agentServices, err := as.q.SelectAllFrom(models.AgentServiceView, "WHERE service_id = ?", filters.ServiceID)
 		if err != nil {
@@ -342,10 +341,10 @@ func (as *AgentsService) agentsByFilters(filters AgentFilters) ([]*models.AgentR
 			return []*models.AgentRow{}, nil
 		}
 
-		tail = fmt.Sprintf("WHERE id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
+		tail = fmt.Sprintf("WHERE agent_id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
 	}
 
-	tail += " ORDER BY id"
+	tail += " ORDER BY agent_id"
 
 	structs, err := as.q.SelectAllFrom(models.AgentRowTable, tail, args...)
 	if err != nil {

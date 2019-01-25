@@ -123,7 +123,7 @@ func (s *AgentsServer) AddRDSExporter(ctx context.Context, req *api.AddRDSExport
 	panic("not implemented yet")
 }
 
-func (s *AgentsServer) AddExternalAgent(ctx context.Context, req *api.AddExternalAgentRequest) (*api.AddExternalAgentResponse, error) {
+func (s *AgentsServer) AddExternalExporter(ctx context.Context, req *api.AddExternalExporterRequest) (*api.AddExternalExporterResponse, error) {
 	panic("not implemented yet")
 }
 

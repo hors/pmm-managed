@@ -143,8 +143,7 @@ type serviceDependencies struct {
 
 type grpcServerDependencies struct {
 	*serviceDependencies
-	consulClient *consul.Client
-	logs         *logs.Logs
+	logs *logs.Logs
 }
 
 // runGRPCServer runs gRPC server until context is canceled, then gracefully stops it.
@@ -426,7 +425,7 @@ func main() {
 		portsRegistry: portsRegistry,
 	}
 
-	logs := logs.New(Version, consulClient, nil)
+	logs := logs.New(Version, nil)
 
 	var wg sync.WaitGroup
 
@@ -435,7 +434,6 @@ func main() {
 		defer wg.Done()
 		runGRPCServer(ctx, &grpcServerDependencies{
 			serviceDependencies: deps,
-			consulClient:        consulClient,
 			logs:                logs,
 		})
 	}()

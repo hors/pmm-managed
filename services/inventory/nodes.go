@@ -111,7 +111,7 @@ func (ns *NodesService) checkUniqueName(ctx context.Context, name string) error 
 		return status.Error(codes.InvalidArgument, "Empty Node name.")
 	}
 
-	_, err := ns.q.FindOneFrom(models.NodeRowTable, "name", name)
+	_, err := ns.q.FindOneFrom(models.NodeRowTable, "node_name", name)
 	switch err {
 	case nil:
 		return status.Errorf(codes.AlreadyExists, "Node with name %q already exists.", name)
@@ -144,7 +144,7 @@ func (ns *NodesService) checkUniqueInstanceRegion(ctx context.Context, instance,
 
 // List selects all Nodes in a stable order.
 func (ns *NodesService) List(ctx context.Context) ([]inventory.Node, error) {
-	structs, err := ns.q.SelectAllFrom(models.NodeRowTable, "ORDER BY id")
+	structs, err := ns.q.SelectAllFrom(models.NodeRowTable, "ORDER BY node_id")
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

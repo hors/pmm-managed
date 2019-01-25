@@ -314,6 +314,3 @@ scrape_configs:
   scrape_timeout: 9s
   metrics_path: /enhanced
   scheme: http
-remote_read:
-- url: http://127.0.0.1:9094/prometheus/api/v1/read
-  remote_timeout: 1m
