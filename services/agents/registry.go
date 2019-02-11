@@ -257,7 +257,10 @@ func (r *Registry) ping(agent *agentInfo) {
 		agent.l.Errorf("Failed to decode Pong.current_time: %s.", err)
 		return
 	}
-	clockDrift := agentTime.Sub(start) + roundtrip/2
+	clockDrift := agentTime.Sub(start) - roundtrip/2
+	if clockDrift < 0 {
+		clockDrift = -clockDrift
+	}
 	agent.l.Infof("Round-trip time: %s. Estimated clock drift: %s.", roundtrip, clockDrift)
 	r.mRoundTrip.Observe(roundtrip.Seconds())
 	r.mClockDrift.Observe(clockDrift.Seconds())
