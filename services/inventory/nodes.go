@@ -22,7 +22,7 @@ import (
 
 	"github.com/AlekSi/pointer"
 	"github.com/google/uuid"
-	"github.com/percona/pmm/api/inventory"
+	api "github.com/percona/pmm/api/inventory"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,25 +45,25 @@ func NewNodesService(q *reform.Querier) *NodesService {
 }
 
 // makeNode converts database row to Inventory API Node.
-func makeNode(row *models.NodeRow) inventory.Node {
+func makeNode(row *models.NodeRow) api.Node {
 	switch row.NodeType {
 	case models.PMMServerNodeType: // FIXME remove this branch
 		fallthrough
 
 	case models.GenericNodeType:
-		return &inventory.GenericNode{
+		return &api.GenericNode{
 			NodeId:   row.NodeID,
 			NodeName: row.NodeName,
 		}
 
 	case models.RemoteNodeType:
-		return &inventory.RemoteNode{
+		return &api.RemoteNode{
 			NodeId:   row.NodeID,
 			NodeName: row.NodeName,
 		}
 
 	case models.RemoteAmazonRDSNodeType:
-		return &inventory.RemoteAmazonRDSNode{
+		return &api.RemoteAmazonRDSNode{
 			NodeId:   row.NodeID,
 			NodeName: row.NodeName,
 			Region:   pointer.GetString(row.Region),
@@ -143,13 +143,13 @@ func (ns *NodesService) checkUniqueInstanceRegion(ctx context.Context, instance,
 }
 
 // List selects all Nodes in a stable order.
-func (ns *NodesService) List(ctx context.Context) ([]inventory.Node, error) {
+func (ns *NodesService) List(ctx context.Context) ([]api.Node, error) {
 	structs, err := ns.q.SelectAllFrom(models.NodeRowTable, "ORDER BY node_id")
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	res := make([]inventory.Node, len(structs))
+	res := make([]api.Node, len(structs))
 	for i, str := range structs {
 		row := str.(*models.NodeRow)
 		res[i] = makeNode(row)
@@ -158,7 +158,7 @@ func (ns *NodesService) List(ctx context.Context) ([]inventory.Node, error) {
 }
 
 // Get selects a single Node by ID.
-func (ns *NodesService) Get(ctx context.Context, id string) (inventory.Node, error) {
+func (ns *NodesService) Get(ctx context.Context, id string) (api.Node, error) {
 	row, err := ns.get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (ns *NodesService) Get(ctx context.Context, id string) (inventory.Node, err
 }
 
 // Add inserts Node with given parameters. ID will be generated.
-func (ns *NodesService) Add(ctx context.Context, nodeType models.NodeType, name string, instance, region *string) (inventory.Node, error) {
+func (ns *NodesService) Add(ctx context.Context, nodeType models.NodeType, name string, instance, region *string) (api.Node, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// No hostname for Container, etc.
 
@@ -199,7 +199,7 @@ func (ns *NodesService) Add(ctx context.Context, nodeType models.NodeType, name 
 }
 
 // Change updates Node by ID.
-func (ns *NodesService) Change(ctx context.Context, id string, name string) (inventory.Node, error) {
+func (ns *NodesService) Change(ctx context.Context, id string, name string) (api.Node, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// ID is not 0, name is not empty and valid.
 

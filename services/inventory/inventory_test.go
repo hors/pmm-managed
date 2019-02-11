@@ -22,7 +22,7 @@ import (
 
 	"github.com/AlekSi/pointer"
 	"github.com/google/uuid"
-	"github.com/percona/pmm/api/inventory"
+	api "github.com/percona/pmm/api/inventory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -65,7 +65,7 @@ func TestNodes(t *testing.T) {
 
 		actualNode, err := ns.Add(ctx, models.GenericNodeType, "test-bm", nil, nil)
 		require.NoError(t, err)
-		expectedNode := &inventory.GenericNode{
+		expectedNode := &api.GenericNode{
 			NodeId:   "/node_id/00000000-0000-4000-8000-000000000001",
 			NodeName: "test-bm",
 		}
@@ -77,7 +77,7 @@ func TestNodes(t *testing.T) {
 
 		actualNode, err = ns.Change(ctx, "/node_id/00000000-0000-4000-8000-000000000001", "test-bm-new")
 		require.NoError(t, err)
-		expectedNode = &inventory.GenericNode{
+		expectedNode = &api.GenericNode{
 			NodeId:   "/node_id/00000000-0000-4000-8000-000000000001",
 			NodeName: "test-bm-new",
 		}
@@ -208,7 +208,7 @@ func TestServices(t *testing.T) {
 
 		actualService, err := ss.AddMySQL(ctx, "test-mysql", models.PMMServerNodeID, pointer.ToString("127.0.0.1"), pointer.ToUint16(3306), nil)
 		require.NoError(t, err)
-		expectedService := &inventory.MySQLService{
+		expectedService := &api.MySQLService{
 			ServiceId:   "/service_id/00000000-0000-4000-8000-000000000001",
 			ServiceName: "test-mysql",
 			NodeId:      models.PMMServerNodeID,
@@ -223,7 +223,7 @@ func TestServices(t *testing.T) {
 
 		actualService, err = ss.Change(ctx, "/service_id/00000000-0000-4000-8000-000000000001", "test-mysql-new")
 		require.NoError(t, err)
-		expectedService = &inventory.MySQLService{
+		expectedService = &api.MySQLService{
 			ServiceId:   "/service_id/00000000-0000-4000-8000-000000000001",
 			ServiceName: "test-mysql-new",
 			NodeId:      models.PMMServerNodeID,
@@ -336,7 +336,7 @@ func TestAgents(t *testing.T) {
 
 		actualAgent, err := as.AddNodeExporter(ctx, models.PMMServerNodeID, true)
 		require.NoError(t, err)
-		expectedNodeExporterAgent := &inventory.NodeExporter{
+		expectedNodeExporterAgent := &api.NodeExporter{
 			AgentId: "/agent_id/00000000-0000-4000-8000-000000000001",
 			NodeId:  models.PMMServerNodeID,
 		}
@@ -354,7 +354,7 @@ func TestAgents(t *testing.T) {
 
 		actualAgent, err = as.AddMySQLdExporter(ctx, n.ID(), false, s.ID(), pointer.ToString("username"), nil)
 		require.NoError(t, err)
-		expectedMySQLdExporterAgent := &inventory.MySQLdExporter{
+		expectedMySQLdExporterAgent := &api.MySQLdExporter{
 			AgentId:      "/agent_id/00000000-0000-4000-8000-000000000004",
 			RunsOnNodeId: n.ID(),
 			ServiceId:    s.ID(),
@@ -426,7 +426,7 @@ func TestAgents(t *testing.T) {
 
 		actualAgent, err := as.AddPMMAgent(ctx, models.PMMServerNodeID)
 		require.NoError(t, err)
-		expectedPMMAgent := &inventory.PMMAgent{
+		expectedPMMAgent := &api.PMMAgent{
 			AgentId: "/agent_id/00000000-0000-4000-8000-000000000001",
 			NodeId:  models.PMMServerNodeID,
 		}

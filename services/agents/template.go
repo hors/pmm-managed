@@ -14,5 +14,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// Package inventory contains inventory business logic: Nodes, Services, Agents.
-package inventory
+package agents
+
+import (
+	"strings"
+)
+
+type pair struct {
+	left  string
+	right string
+}
+
+var pairs = []pair{
+	{left: "{{", right: "}}"},
+	{left: "[[", right: "]]"},
+	{left: "((", right: "))"},
+	{left: "<<", right: ">>"},
+	{left: "<%", right: "%>"},
+}
+
+func templatePair(str ...string) pair {
+	for _, p := range pairs {
+		var found bool
+		for _, s := range str {
+			if strings.Contains(s, p.left) {
+				found = true
+				break
+			}
+			if strings.Contains(s, p.right) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return p
+		}
+	}
+
+	panic("failed to find safe template pair")
+}

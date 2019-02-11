@@ -46,10 +46,16 @@ func (s *AgentsServer) ListAgents(ctx context.Context, req *api.ListAgentsReques
 	res := new(api.ListAgentsResponse)
 	for _, agent := range agents {
 		switch agent := agent.(type) {
+		case *api.PMMAgent:
+			res.PmmAgent = append(res.PmmAgent, agent)
 		case *api.NodeExporter:
 			res.NodeExporter = append(res.NodeExporter, agent)
 		case *api.MySQLdExporter:
 			res.MysqldExporter = append(res.MysqldExporter, agent)
+		case *api.RDSExporter:
+			res.RdsExporter = append(res.RdsExporter, agent)
+		case *api.ExternalExporter:
+			res.ExternalExporter = append(res.ExternalExporter, agent)
 		default:
 			panic(fmt.Errorf("unhandled inventory Agent type %T", agent))
 		}
@@ -67,10 +73,16 @@ func (s *AgentsServer) GetAgent(ctx context.Context, req *api.GetAgentRequest) (
 
 	res := new(api.GetAgentResponse)
 	switch agent := agent.(type) {
+	case *api.PMMAgent:
+		res.Agent = &api.GetAgentResponse_PmmAgent{PmmAgent: agent}
 	case *api.NodeExporter:
 		res.Agent = &api.GetAgentResponse_NodeExporter{NodeExporter: agent}
 	case *api.MySQLdExporter:
 		res.Agent = &api.GetAgentResponse_MysqldExporter{MysqldExporter: agent}
+	case *api.RDSExporter:
+		res.Agent = &api.GetAgentResponse_RdsExporter{RdsExporter: agent}
+	case *api.ExternalExporter:
+		res.Agent = &api.GetAgentResponse_ExternalExporter{ExternalExporter: agent}
 	default:
 		panic(fmt.Errorf("unhandled inventory Agent type %T", agent))
 	}

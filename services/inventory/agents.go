@@ -23,7 +23,7 @@ import (
 
 	"github.com/AlekSi/pointer"
 	"github.com/google/uuid"
-	"github.com/percona/pmm/api/inventory"
+	api "github.com/percona/pmm/api/inventory"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,30 +47,33 @@ func NewAgentsService(q *reform.Querier, r *agents.Registry) *AgentsService {
 }
 
 // makeAgent converts database row to Inventory API Agent.
-func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (inventory.Agent, error) {
+func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (api.Agent, error) {
 	switch row.AgentType {
 	case models.PMMAgentType:
-		return &inventory.PMMAgent{
+		return &api.PMMAgent{
 			AgentId: row.AgentID,
 			NodeId:  row.RunsOnNodeID,
 		}, nil
 
 	case models.NodeExporterType:
-		return &inventory.NodeExporter{
+		return &api.NodeExporter{
 			AgentId: row.AgentID,
 			NodeId:  row.RunsOnNodeID,
 		}, nil
 
 	case models.MySQLdExporterType:
-		var agentService models.AgentService
-		if err := as.q.FindOneTo(&agentService, "agent_id", row.AgentID); err != nil {
-			return nil, errors.WithStack(err)
+		services, err := models.ServicesForAgent(as.q, row.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if len(services) != 1 {
+			return nil, errors.Errorf("expected exactly one Services, got %d", len(services))
 		}
 
-		return &inventory.MySQLdExporter{
+		return &api.MySQLdExporter{
 			AgentId:      row.AgentID,
 			RunsOnNodeId: row.RunsOnNodeID,
-			ServiceId:    agentService.ServiceID,
+			ServiceId:    services[0].ServiceID,
 			Username:     pointer.GetString(row.Username),
 		}, nil
 
@@ -112,14 +115,14 @@ func (as *AgentsService) checkUniqueID(ctx context.Context, id string) error {
 }
 
 // List selects all Agents in a stable order for a given service.
-func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]inventory.Agent, error) {
+func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]api.Agent, error) {
 	agentRows, err := as.agentsByFilters(filters)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
 	// TODO That loop makes len(agentRows) SELECTs, that can be slow. Optimize when needed.
-	res := make([]inventory.Agent, len(agentRows))
+	res := make([]api.Agent, len(agentRows))
 	for i, row := range agentRows {
 		agent, err := as.makeAgent(ctx, row)
 		if err != nil {
@@ -131,7 +134,7 @@ func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]inve
 }
 
 // Get selects a single Agent by ID.
-func (as *AgentsService) Get(ctx context.Context, id string) (inventory.Agent, error) {
+func (as *AgentsService) Get(ctx context.Context, id string) (api.Agent, error) {
 	row, _, err := as.get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -140,7 +143,7 @@ func (as *AgentsService) Get(ctx context.Context, id string) (inventory.Agent, e
 }
 
 // AddPMMAgent inserts pmm-agent Agent with given parameters.
-func (as *AgentsService) AddPMMAgent(ctx context.Context, nodeID string) (inventory.Agent, error) {
+func (as *AgentsService) AddPMMAgent(ctx context.Context, nodeID string) (api.Agent, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
@@ -176,7 +179,7 @@ func (as *AgentsService) AddPMMAgent(ctx context.Context, nodeID string) (invent
 }
 
 // AddNodeExporter inserts node_exporter Agent with given parameters.
-func (as *AgentsService) AddNodeExporter(ctx context.Context, nodeID string, disabled bool) (inventory.Agent, error) {
+func (as *AgentsService) AddNodeExporter(ctx context.Context, nodeID string, disabled bool) (api.Agent, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
@@ -207,11 +210,23 @@ func (as *AgentsService) AddNodeExporter(ctx context.Context, nodeID string, dis
 		return nil, errors.WithStack(err)
 	}
 
+	// send new state to pmm-agents
+	agents, err := as.agentsByFilters(AgentFilters{RunsOnNodeID: nodeID})
+	if err != nil {
+		return nil, err
+	}
+	for _, agent := range agents {
+		if agent.AgentType != models.PMMAgentType {
+			continue
+		}
+		as.r.SendSetStateRequest(ctx, agent.AgentID)
+	}
+
 	return as.makeAgent(ctx, row)
 }
 
 // AddMySQLdExporter inserts mysqld_exporter Agent with given parameters.
-func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, disabled bool, serviceID string, username, password *string) (inventory.Agent, error) {
+func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, disabled bool, serviceID string, username, password *string) (api.Agent, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// TODO Check runs-on Node: it must be BM, VM, DC (i.e. not remote, AWS RDS, etc.)
 
@@ -256,6 +271,18 @@ func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, d
 		return nil, errors.WithStack(err)
 	}
 
+	// send new state to pmm-agents
+	agents, err := as.agentsByFilters(AgentFilters{RunsOnNodeID: nodeID})
+	if err != nil {
+		return nil, err
+	}
+	for _, agent := range agents {
+		if agent.AgentType != models.PMMAgentType {
+			continue
+		}
+		as.r.SendSetStateRequest(ctx, agent.AgentID)
+	}
+
 	return as.makeAgent(ctx, row)
 }
 
@@ -294,9 +321,12 @@ func (as *AgentsService) Remove(ctx context.Context, id string) error {
 		return errors.WithStack(err)
 	}
 
+	as.r.SendSetStateRequest(ctx, id)
+
 	if row.AgentType == models.PMMAgentType {
 		as.r.Kick(ctx, id)
 	}
+
 	return nil
 }
 
@@ -310,6 +340,7 @@ type AgentFilters struct {
 	ServiceID string
 }
 
+// TODO Move to models package to avoid import cycle between inventory and agents packages.
 func (as *AgentsService) agentsByFilters(filters AgentFilters) ([]*models.AgentRow, error) {
 	var tail string
 	var args []interface{}

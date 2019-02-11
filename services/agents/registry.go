@@ -18,14 +18,10 @@ package agents
 
 import (
 	"context"
-	"fmt"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/AlekSi/pointer"
-	"github.com/go-sql-driver/mysql"
 	"github.com/golang/protobuf/ptypes"
 	api "github.com/percona/pmm/api/agent"
 	"github.com/pkg/errors"
@@ -56,12 +52,12 @@ type Registry struct {
 	db *reform.DB
 
 	rw     sync.RWMutex
-	agents map[string]*agentInfo
+	agents map[string]*agentInfo // id -> info
 
 	sharedMetrics *sharedChannelMetrics
 	mConnects     prometheus.Counter
 	mDisconnects  *prometheus.CounterVec
-	mLatency      prometheus.Summary
+	mRoundTrip    prometheus.Summary
 	mClockDrift   prometheus.Summary
 }
 
@@ -83,11 +79,11 @@ func NewRegistry(db *reform.DB) *Registry {
 			Name:      "disconnects_total",
 			Help:      "A total number of pmm-agent disconnects.",
 		}, []string{"reason"}),
-		mLatency: prometheus.NewSummary(prometheus.SummaryOpts{
+		mRoundTrip: prometheus.NewSummary(prometheus.SummaryOpts{
 			Namespace:  prometheusNamespace,
 			Subsystem:  prometheusSubsystem,
-			Name:       "latency_seconds",
-			Help:       "Ping latency.",
+			Name:       "round_trip_seconds",
+			Help:       "Round-trip time.",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		}),
 		mClockDrift: prometheus.NewSummary(prometheus.SummaryOpts{
@@ -117,8 +113,7 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 		agent.l.Infof("Disconnecting client: %s.", disconnectReason)
 	}()
 
-	r.ping(agent)
-	r.SendSetStateRequest(stream.Context(), agent.id)
+	go r.SendSetStateRequest(stream.Context(), agent.id)
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -130,7 +125,8 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 		case <-agent.kick:
 			agent.l.Warn("Kicked.")
 			disconnectReason = "kicked"
-			return nil
+			err = status.Errorf(codes.Aborted, "Another pmm-agent with ID %q connected to the server.", agent.id)
+			return err
 
 		case msg := <-agent.channel.Requests():
 			if msg == nil {
@@ -139,17 +135,21 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 			}
 
 			switch req := msg.Payload.(type) {
-			case *api.AgentMessage_QanData:
-				// TODO handle it
+			case *api.AgentMessage_Ping:
 				agent.channel.SendResponse(&api.ServerMessage{
 					Id: msg.Id,
-					Payload: &api.ServerMessage_QanData{
-						QanData: new(api.QANDataResponse),
+					Payload: &api.ServerMessage_Pong{
+						Pong: &api.Pong{
+							CurrentTime: ptypes.TimestampNow(),
+						},
 					},
 				})
 
 			case *api.AgentMessage_StateChanged:
-				// TODO handle it
+				if err := r.stateChanged(req.StateChanged); err != nil {
+					agent.l.Errorf("%+v", err)
+				}
+
 				agent.channel.SendResponse(&api.ServerMessage{
 					Id: msg.Id,
 					Payload: &api.ServerMessage_StateChanged{
@@ -157,10 +157,20 @@ func (r *Registry) Run(stream api.Agent_ConnectServer) error {
 					},
 				})
 
+			case *api.AgentMessage_QanData:
+				// TODO pass it to QAN
+
+				agent.channel.SendResponse(&api.ServerMessage{
+					Id: msg.Id,
+					Payload: &api.ServerMessage_QanData{
+						QanData: new(api.QANDataResponse),
+					},
+				})
+
 			default:
-				agent.l.Warnf("Unexpected request: %s.", req)
-				disconnectReason = "bad_request"
-				return nil
+				agent.l.Warnf("Unexpected request payload: %s.", msg)
+				disconnectReason = "unimplemented"
+				return status.Error(codes.Unimplemented, "Unexpected request payload.")
 			}
 		}
 	}
@@ -232,6 +242,7 @@ func (r *Registry) Kick(ctx context.Context, id string) {
 	close(agent.kick)
 }
 
+// ping sends Ping message to given Agent, waits for Pong and observes round-trip time and clock drift.
 func (r *Registry) ping(agent *agentInfo) {
 	start := time.Now()
 	res := agent.channel.SendRequest(&api.ServerMessage_Ping{
@@ -240,39 +251,59 @@ func (r *Registry) ping(agent *agentInfo) {
 	if res == nil {
 		return
 	}
-	latency := time.Since(start) / 2
-	t, err := ptypes.Timestamp(res.(*api.AgentMessage_Pong).Pong.CurrentTime)
+	roundtrip := time.Since(start)
+	agentTime, err := ptypes.Timestamp(res.(*api.AgentMessage_Pong).Pong.CurrentTime)
 	if err != nil {
 		agent.l.Errorf("Failed to decode Pong.current_time: %s.", err)
 		return
 	}
-	clockDrift := t.Sub(start.Add(latency))
-	agent.l.Infof("Latency: %s. Clock drift: %s.", latency, clockDrift)
-	r.mLatency.Observe(latency.Seconds())
+	clockDrift := agentTime.Sub(start) + roundtrip/2
+	agent.l.Infof("Round-trip time: %s. Estimated clock drift: %s.", roundtrip, clockDrift)
+	r.mRoundTrip.Observe(roundtrip.Seconds())
 	r.mClockDrift.Observe(clockDrift.Seconds())
 }
 
-func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
+func (r *Registry) stateChanged(s *api.StateChangedRequest) error {
+	err := r.db.InTransaction(func(tx *reform.TX) error {
+		agent := &models.AgentRow{AgentID: s.AgentId}
+		if err := tx.Reload(agent); err != nil {
+			return errors.Wrap(err, "failed to select Agent by ID")
+		}
+
+		agent.Status = pointer.ToString(s.Status.String())
+		agent.ListenPort = pointer.ToUint16(uint16(s.ListenPort))
+		return tx.Update(agent)
+	})
+	if err != nil {
+		return err
+	}
+
+	// TODO notify Prometheus
+
+	return nil
+}
+
+func (r *Registry) SendSetStateRequest(ctx context.Context, agentID string) {
 	l := logger.Get(ctx)
 
 	r.rw.RLock()
-	agent := r.agents[id]
+	agent := r.agents[agentID]
 	r.rw.RUnlock()
 	if agent == nil {
-		l.Infof("pmm-agent with ID %q is not currently connected, ignoring state change.", id)
+		l.Infof("pmm-agent with ID %q is not currently connected, ignoring state change.", agentID)
 		return
 	}
 
 	// We assume that all agents running on that Node except pmm-agent with given ID are subagents.
 	// FIXME That is just plain wrong. We should filter by type, exclude external exporters, etc.
 
-	pmmAgent := &models.AgentRow{AgentID: id}
+	pmmAgent := &models.AgentRow{AgentID: agentID}
 	if err := r.db.Reload(pmmAgent); err != nil {
-		l.Errorf("pmm-agent with ID %q not found: %s.", id, err)
+		l.Errorf("pmm-agent with ID %q not found: %s.", agentID, err)
 		return
 	}
 	if pmmAgent.AgentType != models.PMMAgentType {
-		l.Panicf("Agent with ID %q has invalid type %q.", id, pmmAgent.AgentType)
+		l.Panicf("Agent with ID %q has invalid type %q.", agentID, pmmAgent.AgentType)
 		return
 	}
 	structs, err := r.db.FindAllFrom(models.AgentRowTable, "runs_on_node_id", pmmAgent.RunsOnNodeID)
@@ -287,10 +318,27 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 		switch row.AgentType {
 		case models.PMMAgentType:
 			continue
+
 		case models.NodeExporterType:
-			processes[row.AgentID] = r.nodeExporterConfig(row)
+			node := &models.NodeRow{NodeID: row.RunsOnNodeID}
+			if err = r.db.Reload(node); err != nil {
+				l.Error(err)
+				return
+			}
+			processes[row.AgentID] = nodeExporterConfig(node, row)
+
 		case models.MySQLdExporterType:
-			processes[row.AgentID] = r.mysqldExporterConfig(row)
+			services, err := models.ServicesForAgent(r.db.Querier, row.AgentID)
+			if err != nil {
+				l.Error(err)
+				return
+			}
+			if len(services) != 1 {
+				l.Errorf("Expected exactly one Services, got %d.", len(services))
+				return
+			}
+			processes[row.AgentID] = mysqldExporterConfig(services[0], row)
+
 		default:
 			l.Panicf("unhandled AgentRow type %s", row.AgentType)
 		}
@@ -302,76 +350,6 @@ func (r *Registry) SendSetStateRequest(ctx context.Context, id string) {
 		},
 	})
 	agent.l.Infof("SetState response: %+v.", res)
-}
-
-func (r *Registry) nodeExporterConfig(agent *models.AgentRow) *api.SetStateRequest_AgentProcess {
-	collectors := []string{
-		// TODO !!! Enable them back.
-		// "diskstats",
-		// "filefd",
-		// "meminfo_numa",
-		// "netstat",
-		// "stat",
-		// "uname",
-		// "vmstat",
-
-		"filesystem",
-		"loadavg",
-		"meminfo",
-		"netdev",
-		"textfile",
-		"time",
-	}
-	return &api.SetStateRequest_AgentProcess{
-		Type: api.Type_NODE_EXPORTER,
-		Args: []string{
-			fmt.Sprintf("-collectors.enabled=%s", strings.Join(collectors, ",")),
-			"-web.listen-address=:{{ .ListenPort }}",
-			"-web.telemetry-path=/metrics",
-		},
-	}
-}
-
-func (r *Registry) mysqldExporterConfig(agent *models.AgentRow) *api.SetStateRequest_AgentProcess {
-	args := []string{
-		"-collect.binlog_size",
-		"-collect.global_status",
-		"-collect.global_variables",
-		"-collect.info_schema.innodb_metrics",
-		"-collect.info_schema.processlist",
-		"-collect.info_schema.query_response_time",
-		"-collect.info_schema.userstats",
-		"-collect.perf_schema.eventswaits",
-		"-collect.perf_schema.file_events",
-		"-collect.slave_status",
-		"-web.listen-address=:{{ .listen_port }}",
-	}
-	// TODO Make it configurable. Play safe for now.
-	// args = append(args, "-collect.auto_increment.columns")
-	// args = append(args, "-collect.info_schema.tables")
-	// args = append(args, "-collect.info_schema.tablestats")
-	// args = append(args, "-collect.perf_schema.indexiowaits")
-	// args = append(args, "-collect.perf_schema.tableiowaits")
-	// args = append(args, "-collect.perf_schema.tablelocks")
-	sort.Strings(args)
-
-	// TODO TLSConfig: "true", https://jira.percona.com/browse/PMM-1727
-	// TODO Other parameters?
-	cfg := mysql.NewConfig()
-	cfg.User = pointer.GetString(agent.Username)
-	cfg.Passwd = pointer.GetString(agent.Password)
-	cfg.Net = "tcp"
-	// TODO cfg.Addr = net.JoinHostPort(*service.Address, strconv.Itoa(int(*service.Port)))
-	cfg.Timeout = sqlDialTimeout
-	dsn := cfg.FormatDSN()
-
-	return &api.SetStateRequest_AgentProcess{
-		Type: api.Type_MYSQLD_EXPORTER,
-		Args: args,
-		Env: []string{
-			fmt.Sprintf("DATA_SOURCE_NAME=%s", dsn),
-		},
-	}
 }
 
 // Describe implements prometheus.Collector.

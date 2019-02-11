@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// Package models contains generated Reform records and helpers.
 package models
 
 import (
@@ -100,6 +101,7 @@ var databaseSchema = [][]string{
 
 			-- state
 			version VARCHAR(255),
+			status VARCHAR(255),
 			listen_port SMALLINT UNSIGNED,
 
 			-- MySQLdExporter

@@ -22,7 +22,7 @@ import (
 
 	"github.com/AlekSi/pointer"
 	"github.com/google/uuid"
-	"github.com/percona/pmm/api/inventory"
+	api "github.com/percona/pmm/api/inventory"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,10 +45,10 @@ func NewServicesService(q *reform.Querier) *ServicesService {
 }
 
 // makeService converts database row to Inventory API Service.
-func makeService(row *models.ServiceRow) inventory.Service {
+func makeService(row *models.ServiceRow) api.Service {
 	switch row.ServiceType {
 	case models.MySQLServiceType:
-		return &inventory.MySQLService{
+		return &api.MySQLService{
 			ServiceId:   row.ServiceID,
 			ServiceName: row.ServiceName,
 			NodeId:      row.NodeID,
@@ -107,13 +107,13 @@ func (ss *ServicesService) checkUniqueName(ctx context.Context, name string) err
 }
 
 // List selects all Services in a stable order.
-func (ss *ServicesService) List(ctx context.Context) ([]inventory.Service, error) {
+func (ss *ServicesService) List(ctx context.Context) ([]api.Service, error) {
 	structs, err := ss.q.SelectAllFrom(models.ServiceRowTable, "ORDER BY service_id")
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	res := make([]inventory.Service, len(structs))
+	res := make([]api.Service, len(structs))
 	for i, str := range structs {
 		row := str.(*models.ServiceRow)
 		res[i] = makeService(row)
@@ -122,7 +122,7 @@ func (ss *ServicesService) List(ctx context.Context) ([]inventory.Service, error
 }
 
 // Get selects a single Service by ID.
-func (ss *ServicesService) Get(ctx context.Context, id string) (inventory.Service, error) {
+func (ss *ServicesService) Get(ctx context.Context, id string) (api.Service, error) {
 	row, err := ss.get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (ss *ServicesService) Get(ctx context.Context, id string) (inventory.Servic
 }
 
 // AddMySQL inserts MySQL Service with given parameters.
-func (ss *ServicesService) AddMySQL(ctx context.Context, name string, nodeID string, address *string, port *uint16, unixSocket *string) (inventory.Service, error) {
+func (ss *ServicesService) AddMySQL(ctx context.Context, name string, nodeID string, address *string, port *uint16, unixSocket *string) (api.Service, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// Both address and socket can't be empty, etc.
 
@@ -164,7 +164,7 @@ func (ss *ServicesService) AddMySQL(ctx context.Context, name string, nodeID str
 }
 
 // Change updates Service by ID.
-func (ss *ServicesService) Change(ctx context.Context, id string, name string) (inventory.Service, error) {
+func (ss *ServicesService) Change(ctx context.Context, id string, name string) (api.Service, error) {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// ID is not 0, name is not empty and valid.
 
