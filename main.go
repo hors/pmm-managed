@@ -35,8 +35,9 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/percona/pmm/api/agent"
+	agentAPI "github.com/percona/pmm/api/agent"
 	inventoryAPI "github.com/percona/pmm/api/inventory"
+	"github.com/percona/pmm/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -65,9 +66,6 @@ import (
 
 const (
 	shutdownTimeout = 3 * time.Second
-
-	// TODO set during build
-	Version = "2.0.0-dev"
 )
 
 var (
@@ -157,7 +155,7 @@ func runGRPCServer(ctx context.Context, deps *grpcServerDependencies) {
 		grpc.UnaryInterceptor(interceptors.Unary),
 		grpc.StreamInterceptor(interceptors.Stream),
 	)
-	api.RegisterBaseServer(gRPCServer, &handlers.BaseServer{PMMVersion: Version})
+	api.RegisterBaseServer(gRPCServer, &handlers.BaseServer{PMMVersion: version.Version})
 	api.RegisterDemoServer(gRPCServer, &handlers.DemoServer{})
 	api.RegisterScrapeConfigsServer(gRPCServer, &handlers.ScrapeConfigsServer{
 		Prometheus: deps.prometheus,
@@ -171,7 +169,7 @@ func runGRPCServer(ctx context.Context, deps *grpcServerDependencies) {
 
 	// PMM 2.0 APIs
 	agentsRegistry := agents.NewRegistry(deps.db)
-	agent.RegisterAgentServer(gRPCServer, &handlers.AgentServer{
+	agentAPI.RegisterAgentServer(gRPCServer, &handlers.AgentServer{
 		Registry: agentsRegistry,
 	})
 	inventoryAPI.RegisterNodesServer(gRPCServer, &handlers.NodesServer{
@@ -339,13 +337,13 @@ func runTelemetryService(ctx context.Context, db *reform.DB) {
 		l.Panicf("cannot get/set telemetry UUID in DB: %+v", err)
 	}
 
-	svc := telemetry.NewService(uuid, Version)
+	svc := telemetry.NewService(uuid, version.Version)
 	svc.Run(ctx)
 }
 
 func main() {
 	log.SetFlags(0)
-	log.Printf("pmm-managed %s", Version)
+	log.Printf("%s.", version.ShortInfo())
 	log.SetPrefix("stdlog: ")
 	flag.Parse()
 
@@ -425,7 +423,7 @@ func main() {
 		portsRegistry: portsRegistry,
 	}
 
-	logs := logs.New(Version, nil)
+	logs := logs.New(version.Version, nil)
 
 	var wg sync.WaitGroup
 
