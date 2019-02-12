@@ -227,18 +227,21 @@ func authenticate(md *api.AgentConnectMetadata, q *reform.Querier) error {
 }
 
 // Kick disconnects pmm-agent with given ID.
-func (r *Registry) Kick(ctx context.Context, id string) {
+func (r *Registry) Kick(ctx context.Context, pmmAgentID string) {
+	// We do not check that pmmAgentID is in fact ID of existing pmm-agent because
+	// it may be already deleted from the database, that's why we disconnect it.
+
 	r.rw.Lock()
 	defer r.rw.Unlock()
 
 	l := logger.Get(ctx)
-	agent := r.agents[id]
+	agent := r.agents[pmmAgentID]
 	if agent == nil {
-		l.Infof("pmm-agent with ID %q is not connected.", id)
+		l.Infof("pmm-agent with ID %q is not connected.", pmmAgentID)
 		return
 	}
-	l.Infof("pmm-agent with ID %q is connected, kicking.", id)
-	delete(r.agents, id)
+	l.Infof("pmm-agent with ID %q is connected, kicking.", pmmAgentID)
+	delete(r.agents, pmmAgentID)
 	close(agent.kick)
 }
 
@@ -286,27 +289,27 @@ func (r *Registry) stateChanged(s *api.StateChangedRequest) error {
 	return nil
 }
 
-func (r *Registry) SendSetStateRequest(ctx context.Context, agentID string) {
+func (r *Registry) SendSetStateRequest(ctx context.Context, pmmAgentID string) {
 	l := logger.Get(ctx)
 
 	r.rw.RLock()
-	agent := r.agents[agentID]
+	agent := r.agents[pmmAgentID]
 	r.rw.RUnlock()
 	if agent == nil {
-		l.Infof("pmm-agent with ID %q is not currently connected, ignoring state change.", agentID)
+		l.Infof("pmm-agent with ID %q is not currently connected, ignoring state change.", pmmAgentID)
 		return
 	}
 
 	// We assume that all agents running on that Node except pmm-agent with given ID are subagents.
 	// FIXME That is just plain wrong. We should filter by type, exclude external exporters, etc.
 
-	pmmAgent := &models.AgentRow{AgentID: agentID}
+	pmmAgent := &models.AgentRow{AgentID: pmmAgentID}
 	if err := r.db.Reload(pmmAgent); err != nil {
-		l.Errorf("pmm-agent with ID %q not found: %s.", agentID, err)
+		l.Errorf("pmm-agent with ID %q not found: %s.", pmmAgentID, err)
 		return
 	}
 	if pmmAgent.AgentType != models.PMMAgentType {
-		l.Panicf("Agent with ID %q has invalid type %q.", agentID, pmmAgent.AgentType)
+		l.Panicf("Agent with ID %q has invalid type %q.", pmmAgentID, pmmAgent.AgentType)
 		return
 	}
 	structs, err := r.db.FindAllFrom(models.AgentRowTable, "runs_on_node_id", pmmAgent.RunsOnNodeID)

@@ -16,3 +16,16 @@
 
 // Package inventory contains inventory business logic: Nodes, Services, Agents.
 package inventory
+
+import (
+	"context"
+)
+
+//go:generate mockery -name=registry -inpkg -testonly
+
+// registry is a subset of methods of agents.Registry used by this package.
+// We use it instead of real type for testing and to avoid dependency cycle.
+type registry interface {
+	SendSetStateRequest(ctx context.Context, agentID string)
+	Kick(ctx context.Context, agentID string)
+}

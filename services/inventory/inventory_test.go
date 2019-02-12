@@ -31,6 +31,7 @@ import (
 	"gopkg.in/reform.v1/dialects/mysql"
 
 	"github.com/percona/pmm-managed/models"
+	"github.com/percona/pmm-managed/utils/logger"
 	"github.com/percona/pmm-managed/utils/tests"
 )
 
@@ -39,7 +40,7 @@ func TestNodes(t *testing.T) {
 	defer func() {
 		require.NoError(t, sqlDB.Close())
 	}()
-	ctx := context.Background()
+	ctx := logger.Set(context.Background(), t.Name())
 
 	setup := func(t *testing.T) (ns *NodesService, teardown func(t *testing.T)) {
 		uuid.SetRand(new(tests.IDReader))
@@ -182,7 +183,7 @@ func TestServices(t *testing.T) {
 	defer func() {
 		require.NoError(t, sqlDB.Close())
 	}()
-	ctx := context.Background()
+	ctx := logger.Set(context.Background(), t.Name())
 
 	setup := func(t *testing.T) (ss *ServicesService, teardown func(t *testing.T)) {
 		uuid.SetRand(new(tests.IDReader))
@@ -308,7 +309,7 @@ func TestAgents(t *testing.T) {
 	defer func() {
 		require.NoError(t, sqlDB.Close())
 	}()
-	ctx := context.Background()
+	ctx := logger.Set(context.Background(), t.Name())
 
 	setup := func(t *testing.T) (ns *NodesService, ss *ServicesService, as *AgentsService, teardown func(t *testing.T)) {
 		uuid.SetRand(new(tests.IDReader))
@@ -317,12 +318,14 @@ func TestAgents(t *testing.T) {
 		tx, err := db.Begin()
 		require.NoError(t, err)
 
+		r := new(mockRegistry)
 		teardown = func(t *testing.T) {
 			require.NoError(t, tx.Rollback())
+			r.AssertExpectations(t)
 		}
 		ns = NewNodesService(tx.Querier)
 		ss = NewServicesService(tx.Querier)
-		as = NewAgentsService(tx.Querier, nil)
+		as = NewAgentsService(tx.Querier, r)
 		return
 	}
 

@@ -30,16 +30,15 @@ import (
 	"gopkg.in/reform.v1"
 
 	"github.com/percona/pmm-managed/models"
-	"github.com/percona/pmm-managed/services/agents"
 )
 
 // AgentsService works with inventory API Agents.
 type AgentsService struct {
 	q *reform.Querier
-	r *agents.Registry
+	r registry
 }
 
-func NewAgentsService(q *reform.Querier, r *agents.Registry) *AgentsService {
+func NewAgentsService(q *reform.Querier, r registry) *AgentsService {
 	return &AgentsService{
 		q: q,
 		r: r,
@@ -48,6 +47,10 @@ func NewAgentsService(q *reform.Querier, r *agents.Registry) *AgentsService {
 
 // makeAgent converts database row to Inventory API Agent.
 func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (api.Agent, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	switch row.AgentType {
 	case models.PMMAgentType:
 		return &api.PMMAgent{
@@ -82,23 +85,29 @@ func (as *AgentsService) makeAgent(ctx context.Context, row *models.AgentRow) (a
 	}
 }
 
-func (as *AgentsService) get(ctx context.Context, id string) (*models.AgentRow, *models.AgentNode, error) {
+func (as *AgentsService) get(ctx context.Context, id string) (*models.AgentRow, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if id == "" {
-		return nil, nil, status.Error(codes.InvalidArgument, "Empty Agent ID.")
+		return nil, status.Error(codes.InvalidArgument, "Empty Agent ID.")
 	}
 
 	row := &models.AgentRow{AgentID: id}
 	switch err := as.q.Reload(row); err {
 	case nil:
-		return row, nil, nil
+		return row, nil
 	case reform.ErrNoRows:
-		return nil, nil, status.Errorf(codes.NotFound, "Agent with ID %q not found.", id)
+		return nil, status.Errorf(codes.NotFound, "Agent with ID %q not found.", id)
 	default:
-		return nil, nil, errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 }
 
 func (as *AgentsService) checkUniqueID(ctx context.Context, id string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if id == "" {
 		panic("empty Agent ID")
 	}
@@ -135,7 +144,7 @@ func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]api.
 
 // Get selects a single Agent by ID.
 func (as *AgentsService) Get(ctx context.Context, id string) (api.Agent, error) {
-	row, _, err := as.get(ctx, id)
+	row, err := as.get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +314,7 @@ func (as *AgentsService) Remove(ctx context.Context, id string) error {
 	// TODO Decide about validation. https://jira.percona.com/browse/PMM-1416
 	// ID is not 0.
 
-	row, _, err := as.get(ctx, id)
+	row, err := as.get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -321,7 +330,7 @@ func (as *AgentsService) Remove(ctx context.Context, id string) error {
 		return errors.WithStack(err)
 	}
 
-	as.r.SendSetStateRequest(ctx, id)
+	// TODO as.r.SendSetStateRequest(ctx, proper ID)
 
 	if row.AgentType == models.PMMAgentType {
 		as.r.Kick(ctx, id)
