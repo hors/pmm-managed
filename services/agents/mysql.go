@@ -30,7 +30,7 @@ import (
 )
 
 func mysqldExporterConfig(service *models.ServiceRow, exporter *models.AgentRow) *api.SetStateRequest_AgentProcess {
-	tp := templatePair(
+	tdp := templateDelimsPair(
 		pointer.GetString(service.Address),
 		pointer.GetString(service.UnixSocket),
 		pointer.GetString(exporter.Username),
@@ -49,7 +49,7 @@ func mysqldExporterConfig(service *models.ServiceRow, exporter *models.AgentRow)
 		"-collect.perf_schema.eventswaits",
 		"-collect.perf_schema.file_events",
 		"-collect.slave_status",
-		"-web.listen-address=:" + tp.left + " .listen_port " + tp.right,
+		"-web.listen-address=:" + tdp.left + " .listen_port " + tdp.right,
 	}
 	if pointer.GetString(exporter.MetricsURL) != "" {
 		args = append(args, "-web.telemetry-path="+*exporter.MetricsURL)
@@ -84,8 +84,8 @@ func mysqldExporterConfig(service *models.ServiceRow, exporter *models.AgentRow)
 
 	return &api.SetStateRequest_AgentProcess{
 		Type:               api.Type_MYSQLD_EXPORTER,
-		TemplateLeftDelim:  tp.left,
-		TemplateRightDelim: tp.right,
+		TemplateLeftDelim:  tdp.left,
+		TemplateRightDelim: tdp.right,
 		Args:               args,
 		Env: []string{
 			fmt.Sprintf("DATA_SOURCE_NAME=%s", dsn),

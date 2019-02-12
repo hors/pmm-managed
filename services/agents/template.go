@@ -33,7 +33,8 @@ var pairs = []pair{
 	{left: "<%", right: "%>"},
 }
 
-func templatePair(str ...string) pair {
+// templateDelimsPair returns a pair of safe template delimeters that are not present in any given string.
+func templateDelimsPair(str ...string) pair {
 	for _, p := range pairs {
 		var found bool
 		for _, s := range str {
@@ -51,5 +52,5 @@ func templatePair(str ...string) pair {
 		}
 	}
 
-	panic("failed to find safe template pair")
+	panic("failed to find a pair of safe template delimeters")
 }

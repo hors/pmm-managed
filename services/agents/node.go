@@ -26,7 +26,7 @@ import (
 )
 
 func nodeExporterConfig(node *models.NodeRow, exporter *models.AgentRow) *api.SetStateRequest_AgentProcess {
-	tp := templatePair(
+	tdp := templateDelimsPair(
 		pointer.GetString(exporter.MetricsURL),
 	)
 
@@ -42,7 +42,7 @@ func nodeExporterConfig(node *models.NodeRow, exporter *models.AgentRow) *api.Se
 		// TODO --collector.textfile.directory=""
 		"--collector.time",
 		"--collector.cpu",
-		"--web.listen-address=:" + tp.left + " .listen_port " + tp.right,
+		"--web.listen-address=:" + tdp.left + " .listen_port " + tdp.right,
 	}
 
 	// useful for development
@@ -60,8 +60,8 @@ func nodeExporterConfig(node *models.NodeRow, exporter *models.AgentRow) *api.Se
 
 	return &api.SetStateRequest_AgentProcess{
 		Type:               api.Type_NODE_EXPORTER,
-		TemplateLeftDelim:  tp.left,
-		TemplateRightDelim: tp.right,
+		TemplateLeftDelim:  tdp.left,
+		TemplateRightDelim: tdp.right,
 		Args:               args,
 	}
 }
