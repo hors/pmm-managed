@@ -17,12 +17,30 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
 	"gopkg.in/reform.v1"
 )
 
 //go:generate reform
+
+// AgentsRunningOnNode returns all Agents running on Node.
+// TODO Remove after https://jira.percona.com/browse/PMM-3478.
+func AgentsRunningOnNode(q *reform.Querier, nodeID string) ([]*AgentRow, error) {
+	tail := fmt.Sprintf("WHERE runs_on_node_id = %s ORDER BY agent_id", q.Placeholder(1)) //nolint:gosec
+	structs, err := q.SelectAllFrom(AgentRowTable, tail, nodeID)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to select Agents")
+	}
+
+	res := make([]*AgentRow, len(structs))
+	for i, s := range structs {
+		res[i] = s.(*AgentRow)
+	}
+	return res, nil
+}
 
 // AgentType represents Agent type as stored in database.
 type AgentType string

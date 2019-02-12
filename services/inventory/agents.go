@@ -19,7 +19,6 @@ package inventory
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/AlekSi/pointer"
 	"github.com/google/uuid"
@@ -125,9 +124,26 @@ func (as *AgentsService) checkUniqueID(ctx context.Context, id string) error {
 
 // List selects all Agents in a stable order for a given service.
 func (as *AgentsService) List(ctx context.Context, filters AgentFilters) ([]api.Agent, error) {
-	agentRows, err := as.agentsByFilters(filters)
+	var agentRows []*models.AgentRow
+	var err error
+	switch {
+	case filters.RunsOnNodeID != "":
+		agentRows, err = models.AgentsRunningOnNode(as.q, filters.RunsOnNodeID)
+	case filters.NodeID != "":
+		agentRows, err = models.AgentsForNode(as.q, filters.NodeID)
+	case filters.ServiceID != "":
+		agentRows, err = models.AgentsForService(as.q, filters.ServiceID)
+	default:
+		var structs []reform.Struct
+		structs, err = as.q.SelectAllFrom(models.AgentRowTable, "ORDER BY agent_id")
+		err = errors.Wrap(err, "failed to select Agents")
+		agentRows = make([]*models.AgentRow, len(structs))
+		for i, s := range structs {
+			agentRows[i] = s.(*models.AgentRow)
+		}
+	}
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
 
 	// TODO That loop makes len(agentRows) SELECTs, that can be slow. Optimize when needed.
@@ -220,7 +236,7 @@ func (as *AgentsService) AddNodeExporter(ctx context.Context, nodeID string, dis
 	}
 
 	// send new state to pmm-agents
-	agents, err := as.agentsByFilters(AgentFilters{RunsOnNodeID: nodeID})
+	agents, err := models.AgentsRunningOnNode(as.q, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +297,7 @@ func (as *AgentsService) AddMySQLdExporter(ctx context.Context, nodeID string, d
 	}
 
 	// send new state to pmm-agents
-	agents, err := as.agentsByFilters(AgentFilters{RunsOnNodeID: nodeID})
+	agents, err := models.AgentsRunningOnNode(as.q, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -347,52 +363,4 @@ type AgentFilters struct {
 	NodeID string
 	// Return only Agents that provide insights for that Service.
 	ServiceID string
-}
-
-// TODO Move to models package to avoid import cycle between inventory and agents packages.
-func (as *AgentsService) agentsByFilters(filters AgentFilters) ([]*models.AgentRow, error) {
-	var tail string
-	var args []interface{}
-	switch {
-	case filters.RunsOnNodeID != "":
-		tail = fmt.Sprintf("WHERE runs_on_node_id = %s", as.q.Placeholder(1))
-		args = []interface{}{filters.RunsOnNodeID}
-	case filters.NodeID != "":
-		agentNodes, err := as.q.SelectAllFrom(models.AgentNodeView, "WHERE node_id = ?", filters.NodeID)
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-		for _, str := range agentNodes {
-			args = append(args, str.(*models.AgentNode).AgentID)
-		}
-		if len(args) == 0 {
-			return []*models.AgentRow{}, nil
-		}
-		tail = fmt.Sprintf("WHERE agent_id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
-	case filters.ServiceID != "":
-		agentServices, err := as.q.SelectAllFrom(models.AgentServiceView, "WHERE service_id = ?", filters.ServiceID)
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-		for _, str := range agentServices {
-			args = append(args, str.(*models.AgentService).AgentID)
-		}
-		if len(args) == 0 {
-			return []*models.AgentRow{}, nil
-		}
-
-		tail = fmt.Sprintf("WHERE agent_id IN (%s)", strings.Join(as.q.Placeholders(1, len(args)), ", "))
-	}
-
-	tail += " ORDER BY agent_id"
-
-	structs, err := as.q.SelectAllFrom(models.AgentRowTable, tail, args...)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	agentRows := make([]*models.AgentRow, len(structs))
-	for i, str := range structs {
-		agentRows[i] = str.(*models.AgentRow)
-	}
-	return agentRows, nil
 }

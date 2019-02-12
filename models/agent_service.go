@@ -27,6 +27,32 @@ import (
 
 //go:generate reform
 
+// AgentsForService returns all Agents providing insights for given Service.
+func AgentsForService(q *reform.Querier, serviceID string) ([]*AgentRow, error) {
+	structs, err := q.FindAllFrom(AgentServiceView, "service_id", serviceID)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to select Agent IDs")
+	}
+
+	agentIDs := make([]interface{}, len(structs))
+	for i, s := range structs {
+		agentIDs[i] = s.(*AgentService).AgentID
+	}
+
+	p := strings.Join(q.Placeholders(1, len(agentIDs)), ", ")
+	tail := fmt.Sprintf("WHERE agent_id IN (%s) ORDER BY agent_id", p) //nolint:gosec
+	structs, err = q.SelectAllFrom(AgentRowTable, tail, agentIDs...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to select Agents")
+	}
+
+	res := make([]*AgentRow, len(structs))
+	for i, s := range structs {
+		res[i] = s.(*AgentRow)
+	}
+	return res, nil
+}
+
 // ServicesForAgent returns all Services for which Agent with given ID provides insights.
 func ServicesForAgent(q *reform.Querier, agentID string) ([]*ServiceRow, error) {
 	structs, err := q.FindAllFrom(AgentServiceView, "agent_id", agentID)
