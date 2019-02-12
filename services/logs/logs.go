@@ -32,7 +32,6 @@ import (
 	"strings"
 	"time"
 
-	servicelib "github.com/percona/kardianos-service"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 
@@ -148,10 +147,9 @@ func New(pmmVersion string, logs []Log) *Logs {
 		logs:       logs,
 	}
 
-	// PMM Server Docker image contails journalctl, so we can't use exec.LookPath("journalctl") alone for detection.
-	// TODO Probably, that check should be moved to supervisor service.
-	//      Or the whole logs service should be merged with it.
-	if servicelib.Platform() == "linux-systemd" {
+	// PMM Server Docker image contails journalctl,
+	// so we can't use exec.LookPath("journalctl") alone for detection.
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
 		l.journalctlPath, _ = exec.LookPath("journalctl")
 	}
 

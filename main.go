@@ -57,7 +57,6 @@ import (
 	"github.com/percona/pmm-managed/services/inventory"
 	"github.com/percona/pmm-managed/services/logs"
 	"github.com/percona/pmm-managed/services/prometheus"
-	"github.com/percona/pmm-managed/services/supervisor"
 	"github.com/percona/pmm-managed/services/telemetry"
 	"github.com/percona/pmm-managed/utils/interceptors"
 	"github.com/percona/pmm-managed/utils/logger"
@@ -134,7 +133,6 @@ func addLogsHandler(mux *http.ServeMux, logs *logs.Logs) {
 
 type serviceDependencies struct {
 	prometheus    *prometheus.Service
-	supervisor    *supervisor.Supervisor
 	db            *reform.DB
 	portsRegistry *ports.Registry
 }
@@ -398,8 +396,6 @@ func main() {
 		l.Panicf("Prometheus service problem: %+v", err)
 	}
 
-	supervisor := supervisor.New(l)
-
 	sqlDB, err := models.OpenDB(*dbNameF, *dbUsernameF, *dbPasswordF, l.Debugf)
 	if err != nil {
 		l.Panicf("Failed to connect to database: %+v", err)
@@ -418,7 +414,6 @@ func main() {
 
 	deps := &serviceDependencies{
 		prometheus:    prometheus,
-		supervisor:    supervisor,
 		db:            db,
 		portsRegistry: portsRegistry,
 	}

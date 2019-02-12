@@ -375,28 +375,12 @@
   version = "v0.5.0"
 
 [[projects]]
-  digest = "1:2be5a35f0c5b35162c41bb24971e5dcf6ce825403296ee435429cdcc4e1e847e"
-  name = "github.com/hashicorp/go-immutable-radix"
-  packages = ["."]
-  pruneopts = "T"
-  revision = "27df80928bb34bb1b0d6d0e01b9e679902e7a6b5"
-  version = "v1.0.0"
-
-[[projects]]
   digest = "1:d0a89b60b5f3953efe63c87dd34a5fc47eee5ef61d89819425efd900020eed6d"
   name = "github.com/hashicorp/go-rootcerts"
   packages = ["."]
   pruneopts = "T"
   revision = "63503fb4e1eca22f9ae0f90b49c5d5538a0e87eb"
   version = "v1.0.0"
-
-[[projects]]
-  digest = "1:8ec8d88c248041a6df5f6574b87bc00e7e0b493881dad2e7ef47b11dc69093b5"
-  name = "github.com/hashicorp/golang-lru"
-  packages = ["simplelru"]
-  pruneopts = "T"
-  revision = "20f1fb78b0740ba8c3cb143a61e86ba5c8669768"
-  version = "v0.5.0"
 
 [[projects]]
   digest = "1:071bcbf82c289fba4d3f63c876bf4f0ba7eda625cd60795e0a03ccbf949e517a"
@@ -439,14 +423,6 @@
   packages = ["."]
   pruneopts = "T"
   revision = "c2b33e84"
-
-[[projects]]
-  branch = "master"
-  digest = "1:caf6db28595425c0e0f2301a00257d11712f65c1878e12cffc42f6b9a9cf3f23"
-  name = "github.com/kardianos/osext"
-  packages = ["."]
-  pruneopts = "T"
-  revision = "ae77be60afb1dcacde03767a8c37337fad28ac14"
 
 [[projects]]
   digest = "1:0a69a1c0db3591fcefb47f115b224592c8dfa4368b7ba9fae509d5e16cdc95c8"
@@ -550,14 +526,6 @@
   pruneopts = "T"
   revision = "16b0da83255720371d18b2304257e073491ed63c"
   version = "v0.1.0"
-
-[[projects]]
-  branch = "PMM-3209-supervisord-fixes-for-pmm-managed"
-  digest = "1:5aa0fd2697f43fa6b020e0e49562f82a5577d079e9997765ca236987afa5cbc4"
-  name = "github.com/percona/kardianos-service"
-  packages = ["."]
-  pruneopts = "T"
-  revision = "0ea0c37c12980df5eaab8d4bc7fe70da830d6743"
 
 [[projects]]
   branch = "PMM-2.0"
@@ -761,10 +729,6 @@
   packages = [
     "unix",
     "windows",
-    "windows/registry",
-    "windows/svc",
-    "windows/svc/eventlog",
-    "windows/svc/mgr",
   ]
   pruneopts = "T"
   revision = "41f3e6584952bb034a481797859f6ab34b6803bd"
@@ -934,7 +898,6 @@
     "github.com/hashicorp/consul/api",
     "github.com/lib/pq",
     "github.com/percona/exporter_shared/helpers",
-    "github.com/percona/kardianos-service",
     "github.com/percona/pmm/api/agent",
     "github.com/percona/pmm/api/inventory",
     "github.com/percona/pmm/version",
